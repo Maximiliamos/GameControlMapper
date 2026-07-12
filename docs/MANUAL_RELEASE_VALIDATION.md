@@ -1,5 +1,29 @@
 # Manual release validation
 
+## Test package and execution order
+
+Release files: `GameControlMapper-<version>-win-x64.zip` and `GameControlMapper-TouchTestHarness-<version>-win-x64.zip`.
+
+1. Extract both ZIP files into separate directories.
+2. Start `GameControlMapper.TouchTestHarness.exe`; in the main application select its window as the target.
+3. Start `GameControlMapper.exe`, verify the Beta version, then follow the scenarios below without using unsupported features.
+4. In TouchTestHarness save/export the stand report after the scenarios.
+5. In Game Control Mapper choose **Экспорт диагностики** and keep the resulting diagnostic ZIP with this checklist.
+6. Stop mapping before closing both applications; close the main application, then TouchTestHarness.
+
+Environment: Windows version __________  DPI __________  Monitor count __________
+
+Commit hash __________  Game/emulator under test __________  Tester/date __________
+
+| Area | PASS | FAIL | Notes |
+|---|---|---|---|
+| Startup and shutdown | ☐ | ☐ | |
+| Tap / Hold / DoubleTap / Swipe | ☐ | ☐ | |
+| WASD / Camera / MouseArea | ☐ | ☐ | |
+| Focus and geometry safety | ☐ | ☐ | |
+| Multitouch capacity | ☐ | ☐ | |
+| Diagnostics and reports | ☐ | ☐ | |
+
 Before testing, verify the Beta label and capability matrix in the UI. Do not treat XInput, Macro/Sequence, Android, pinch or rotation as supported. Diagnostic export must contain `Capability matrix` and `xinput: UnsupportedInBeta`.
 
 Application version: __________  Commit hash: __________  Tester/date: __________

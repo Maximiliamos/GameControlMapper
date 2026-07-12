@@ -22,7 +22,12 @@ public class TouchEngine
 
     public TouchContactLease? StartTouch(long generation,string owner,double x,double y)
     {
-        var lease=_allocator.TryAcquire(generation,owner);if(lease is null)return null;StartTouch(lease.ContactId,x,y);return lease;
+        lock(_gate)
+        {
+            if(!_acceptingContacts){_logger.LogDebug("StartTouch ignored while touch engine is stopping");return null;}
+            var lease=_allocator.TryAcquire(generation,owner);if(lease is null)return null;
+            _contacts.StartContact(lease.ContactId,x,y);return lease;
+        }
     }
     public void MoveTouch(TouchContactLease lease,double x,double y){if(lease.State==TouchLeaseState.Active)MoveTouch(lease.ContactId,x,y);}
     public void EndTouch(TouchContactLease lease){if(!_allocator.RequestRelease(lease))return;var sent=_contacts.WasSuccessfullyStarted(lease.ContactId);EndTouch(lease.ContactId);if(!sent){_contacts.CompleteReleasedContacts([lease.ContactId]);_allocator.CompleteSuccessfulUp([lease.ContactId]);}}
