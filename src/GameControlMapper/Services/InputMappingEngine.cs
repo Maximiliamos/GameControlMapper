@@ -18,13 +18,13 @@ public sealed class InputMappingEngine : IDisposable
     private readonly HotkeyParser _hotkeyParser;
     private readonly TargetWindowSessionManager _targetSession;
     private readonly WindowCoordinateTransformer _windowCoordinateTransformer;
+    private readonly ITouchContactAllocator _contactAllocator;
     private readonly ILogger<InputMappingEngine> _logger;
     private readonly ITargetWindowActivationMonitor? _activationMonitor;
     private readonly object _gate = new();
     private readonly HashSet<int> _pressedKeys = [];
     private readonly Dictionary<Guid, JoystickRuntimeState> _joysticks = [];
     private readonly Dictionary<Guid, MouseAreaRuntimeState> _activeMouseAreas = [];
-    private readonly Dictionary<Guid, int> _actionContactIds = [];
     private readonly Dictionary<Guid, SemaphoreSlim> _actionLocks = [];
     private CancellationTokenSource _gestureCancellation = new();
     private Task<TouchShutdownResult>? _stopTask;
@@ -46,7 +46,7 @@ public sealed class InputMappingEngine : IDisposable
         TargetWindowSessionManager targetSession,
         WindowCoordinateTransformer windowCoordinateTransformer,
         ILogger<InputMappingEngine> logger,
-        ITargetWindowActivationMonitor? activationMonitor = null)
+        ITargetWindowActivationMonitor? activationMonitor = null, ITouchContactAllocator? contactAllocator = null)
     {
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
@@ -61,6 +61,7 @@ public sealed class InputMappingEngine : IDisposable
         _windowCoordinateTransformer = windowCoordinateTransformer;
         _logger = logger;
         _activationMonitor = activationMonitor;
+        _contactAllocator = contactAllocator ?? touchEngine.ContactAllocator;
 
         _keyboardHook.GeneratedKeyDown += OnGeneratedKeyDown;
         _keyboardHook.GeneratedKeyUp += OnGeneratedKeyUp;
@@ -95,17 +96,9 @@ public sealed class InputMappingEngine : IDisposable
             // Always use TouchInjection mode for now
             Models.InputModeGuard.TouchInjectionMode = true;
             _gamepadMapper.SetProfile(profile);
-            _actionContactIds.Clear();
-            var nextContactId = 4;
-            foreach (var binding in profile.Bindings.Where(b => b.Kind is not BindingKind.Joystick and not BindingKind.Aim && b.Kind is not BindingKind.MouseArea))
+            foreach (var binding in profile.Bindings)
             {
-                if (nextContactId >= 10)
-                {
-                    _logger.LogWarning("Binding {Binding} cannot receive a touch contact: the 10-contact limit was reached", binding.Name);
-                    continue;
-                }
-                _actionContactIds[binding.Id] = nextContactId++;
-                _actionLocks[binding.Id] = new SemaphoreSlim(1, 1);
+                if (!_actionLocks.ContainsKey(binding.Id)) _actionLocks[binding.Id] = new SemaphoreSlim(1, 1);
             }
         }
     }
@@ -132,6 +125,7 @@ public sealed class InputMappingEngine : IDisposable
             _stopTask = null;
             Interlocked.Exchange(ref _coordinateWarningLogged, 0);
             IsActive = true;
+            _contactAllocator.Reset(targetStart.Session!.Generation);
             PublishInputPermission(targetStart.Session!.Generation);
             _touchEngine.StartAcceptingContacts();
             _touchScheduler.Resume();
@@ -172,7 +166,7 @@ public sealed class InputMappingEngine : IDisposable
             {
                 if (_activeMouseAreas.TryGetValue(bindingId, out var state))
                 {
-                    _touchEngine.EndTouch(state.ContactId);
+                    _touchEngine.EndTouch(state.Lease);
                 }
             }
             _activeMouseAreas.Clear();
@@ -351,11 +345,9 @@ public sealed class InputMappingEngine : IDisposable
                 _logger.LogInformation("HandlePressedInput: Processing MouseArea binding '{Name}'", binding.Name);
                 if (!_activeMouseAreas.ContainsKey(binding.Id))
                 {
-                    var contactId = GetActionContactId(binding);
                     if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) continue;
-                    _logger.LogInformation("HandlePressedInput: Calling TouchDown({ContactId}, {ScaledX}, {ScaledY}) for MouseArea '{Name}'", contactId, scaled.X, scaled.Y, binding.Name);
-                    _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
-                    _activeMouseAreas[binding.Id] = new MouseAreaRuntimeState(contactId);
+                    var lease = _touchEngine.StartTouch(CurrentGeneration, $"mouse-area:{binding.Id}", scaled.X, scaled.Y);
+                    if (lease is not null) _activeMouseAreas[binding.Id] = new MouseAreaRuntimeState(lease);
                 }
             }
             else
@@ -432,8 +424,7 @@ public sealed class InputMappingEngine : IDisposable
             {
                 if (_activeMouseAreas.TryGetValue(binding.Id, out var state))
                 {
-                    _logger.LogInformation("HandleReleasedInput: Calling TouchUp({ContactId}) for MouseArea '{Name}'", state.ContactId, binding.Name);
-                    _touchEngine.EndTouch(state.ContactId);
+                    _touchEngine.EndTouch(state.Lease);
                     _activeMouseAreas.Remove(binding.Id);
                 }
             }
@@ -481,12 +472,13 @@ public sealed class InputMappingEngine : IDisposable
 
             if (!_joysticks.TryGetValue(binding.Id, out var state))
             {
-                state = new JoystickRuntimeState(GetJoystickContactId(binding));
+                var lease = _touchEngine.StartTouch(CurrentGeneration, $"joystick:{binding.Id}", scaledCenter.X, scaledCenter.Y);
+                if (lease is null) continue;
+                state = new JoystickRuntimeState(lease);
                 _joysticks[binding.Id] = state;
-                _touchEngine.StartTouch(state.ContactId, scaledCenter.X, scaledCenter.Y);
             }
 
-            _touchEngine.MoveTouch(state.ContactId, scaledTarget.X, scaledTarget.Y);
+            _touchEngine.MoveTouch(state.Lease, scaledTarget.X, scaledTarget.Y);
         }
 
         return handled;
@@ -507,7 +499,7 @@ public sealed class InputMappingEngine : IDisposable
             return;
         }
 
-        _touchEngine.EndTouch(state.ContactId);
+        _touchEngine.EndTouch(state.Lease);
     }
 
     private async Task RunTouchBindingAsync(ControlBinding binding, CancellationToken cancellationToken)
@@ -528,8 +520,8 @@ public sealed class InputMappingEngine : IDisposable
         if (Models.InputModeGuard.TouchInjectionMode)
         {
             // Use new TouchEngine path for Touch Injection mode
-            var contactId = GetActionContactId(binding);
-            if (contactId < 0) return;
+            TouchContactLease? lease = null;
+            TouchContactLease? Acquire(double x, double y) => _touchEngine.StartTouch(CurrentGeneration, $"binding:{binding.Id}", x, y);
             switch (binding.Kind)
             {
                 case BindingKind.Tap:
@@ -537,29 +529,29 @@ public sealed class InputMappingEngine : IDisposable
                 case BindingKind.Aim:
                     {
                         if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
+                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
                         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(contactId);
+                        _touchEngine.EndTouch(lease);
                         break;
                     }
                 case BindingKind.DoubleTap:
                     {
                         if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
+                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
                         await Task.Delay(30, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(contactId);
+                        _touchEngine.EndTouch(lease);
                         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
+                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
                         await Task.Delay(30, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(contactId);
+                        _touchEngine.EndTouch(lease);
                         break;
                     }
                 case BindingKind.Hold:
                     {
                         if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
+                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
                         await Task.Delay(Math.Max(35, binding.HoldMilliseconds), cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(contactId);
+                        _touchEngine.EndTouch(lease);
                         break;
                     }
                 case BindingKind.Swipe:
@@ -567,66 +559,21 @@ public sealed class InputMappingEngine : IDisposable
                         if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
                             !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
                         const int steps = 10;
-                        _touchEngine.StartTouch(contactId, scaledStart.X, scaledStart.Y);
+                        lease = Acquire(scaledStart.X, scaledStart.Y); if (lease is null) return;
                         for (int i = 1; i <= steps; i++)
                         {
                             double t = (double)i / steps;
                             double x = scaledStart.X + (scaledEnd.X - scaledStart.X) * t;
-                            _touchEngine.MoveTouch(contactId, x, scaledStart.Y);
+                            _touchEngine.MoveTouch(lease, x, scaledStart.Y);
                             await Task.Delay(Math.Max(Math.Max(120, binding.HoldMilliseconds) / steps, 10), cancellationToken).ConfigureAwait(false);
                         }
-                        _touchEngine.EndTouch(contactId);
+                        _touchEngine.EndTouch(lease);
                         break;
                     }
                 case BindingKind.Macro:
                 case BindingKind.Sequence:
                     // Macros/Sequences still use native input even in touch mode?
                     await _inputSimulator.ExecuteBindingAsync(binding, cancellationToken).ConfigureAwait(false);
-                    break;
-            }
-        }
-        else
-        {
-            // Use old path for SendInput mode
-            switch (binding.Kind)
-            {
-                case BindingKind.Tap:
-                case BindingKind.MouseArea:
-                case BindingKind.Aim:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        await _touchSimulator.TapAsync(scaled.X, scaled.Y, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-                        break;
-                    }
-                case BindingKind.DoubleTap:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        await _touchSimulator.DoubleTapAsync(scaled.X, scaled.Y, CancellationToken.None).ConfigureAwait(false);
-                        break;
-                    }
-                case BindingKind.Hold:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        await _touchSimulator.HoldAsync(GetActionContactId(binding), scaled.X, scaled.Y, Math.Max(35, binding.HoldMilliseconds), CancellationToken.None).ConfigureAwait(false);
-                        break;
-                    }
-                case BindingKind.Swipe:
-                    {
-                        if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
-                            !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
-                        await _touchSimulator.SwipeAsync(
-                            GetActionContactId(binding),
-                            scaledStart.X,
-                            scaledStart.Y,
-                            scaledEnd.X,
-                            scaledEnd.Y,
-                            Math.Max(120, binding.HoldMilliseconds),
-                            CancellationToken.None).ConfigureAwait(false);
-                        break;
-                    }
-                case BindingKind.Macro:
-                case BindingKind.Sequence:
-                    await _inputSimulator.ExecuteBindingAsync(binding, CancellationToken.None).ConfigureAwait(false);
                     break;
             }
         }
@@ -681,10 +628,7 @@ public sealed class InputMappingEngine : IDisposable
         return snapshot.AllowSuppression && snapshot.SuppressedButtons.Contains(virtualKey);
     }
 
-    private static int GetJoystickContactId(ControlBinding binding)
-    {
-        return (int)Models.FixedContacts.Joystick;
-    }
+    private long CurrentGeneration => _targetSession.Current?.Generation ?? 0;
 
     private bool TryScalePointToTarget(double x, double y, out PhysicalScreenPoint point)
     {
@@ -716,25 +660,9 @@ public sealed class InputMappingEngine : IDisposable
             _logger.LogWarning("Touch coordinate rejected: {Reason}", message);
     }
 
-    private int GetActionContactId(ControlBinding binding)
-    {
-        // Проверяем, это Fire (ЛКМ) или Aim (ПКМ)?
-        var hotkey = binding.Hotkey.ToLowerInvariant();
-        if (hotkey.Contains("leftbutton") || hotkey.Contains("mouseleft"))
-        {
-            return (int)Models.FixedContacts.Fire;
-        }
-        if (hotkey.Contains("rightbutton") || hotkey.Contains("mouseright"))
-        {
-            return (int)Models.FixedContacts.Aim;
-        }
-        // Для других используем существующий метод (для совместимости)
-        return _actionContactIds.TryGetValue(binding.Id, out var id) ? id : -1;
-    }
+    private sealed record JoystickRuntimeState(TouchContactLease Lease);
 
-    private sealed record JoystickRuntimeState(int ContactId);
-
-    private sealed record MouseAreaRuntimeState(int ContactId);
+    private sealed record MouseAreaRuntimeState(TouchContactLease Lease);
 
     public void Dispose()
     {

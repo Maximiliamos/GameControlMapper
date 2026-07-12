@@ -289,6 +289,7 @@ public class ContactManager
     {
         lock (_gate) return _activeContacts.TryGetValue(contactId, out var contact) ? contact : null;
     }
+    public bool WasSuccessfullyStarted(int contactId){lock(_gate)return _successfullyStartedContacts.Contains(contactId);}
 
     private static TouchContact Clone(TouchContact source) => new(source.ContactId)
     {

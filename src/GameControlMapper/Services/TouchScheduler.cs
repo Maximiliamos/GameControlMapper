@@ -13,6 +13,7 @@ public class TouchScheduler : IDisposable
     private readonly ITouchBackend _backend;
     private readonly FrameContext _context;
     private readonly ITargetWindowSessionValidator? _sessionValidator;
+    private readonly ITouchContactAllocator? _allocator;
     private CancellationTokenSource? _cts;
     private int _frameId = 0;
     
@@ -45,13 +46,14 @@ public class TouchScheduler : IDisposable
         ContactManager manager,
         ITouchBackend backend,
         FrameContext context,
-        ITargetWindowSessionValidator? sessionValidator = null)
+        ITargetWindowSessionValidator? sessionValidator = null, ITouchContactAllocator? allocator = null)
     {
         _logger = logger;
         _manager = manager;
         _backend = backend;
         _context = context;
         _sessionValidator = sessionValidator;
+        _allocator = allocator;
     }
 
     public void Start()
@@ -107,12 +109,14 @@ public class TouchScheduler : IDisposable
             if (sent)
             {
                 _manager.CompleteReleasedContacts(contactIds);
+                _allocator?.CompleteSuccessfulUp(contactIds);
                 FrameSent?.Invoke(this, EventArgs.Empty);
                 return new TouchShutdownResult(true, true, contactIds, []);
             }
 
             _logger.LogError("Final touch release frame failed for contacts: {ContactIds}", string.Join(", ", contactIds));
             _manager.DiscardContacts(contactIds);
+            _allocator?.QuarantineFailedUp(contactIds);
             return new TouchShutdownResult(false, true, [], contactIds);
         }
         finally
@@ -182,9 +186,15 @@ public class TouchScheduler : IDisposable
 
         LogFrame(frame);
 
-        if (!_backend.SendFrame(frame)) return;
+        if (!_backend.SendFrame(frame))
+        {
+            var failedUps=contacts.Where(c=>c.State==TouchState.Up).Select(c=>c.ContactId).ToArray();
+            if(failedUps.Length>0){_allocator?.QuarantineFailedUp(failedUps);_manager.DiscardContacts(failedUps);_logger.LogError("Touch Up failed; contact IDs quarantined: {Ids}",string.Join(", ",failedUps));}
+            return;
+        }
         _manager.AdvanceSentContacts(contacts.Where(c => c.State == TouchState.Down).Select(c => c.ContactId));
         _manager.CompleteReleasedContacts(contacts.Where(c => c.State == TouchState.Up).Select(c => c.ContactId));
+        _allocator?.CompleteSuccessfulUp(contacts.Where(c => c.State == TouchState.Up).Select(c => c.ContactId));
         FrameSent?.Invoke(this, EventArgs.Empty);
     }
 

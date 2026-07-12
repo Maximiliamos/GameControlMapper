@@ -18,6 +18,7 @@ public sealed class CameraMouseLookService : IDisposable
     private double _x,_y,_vx,_vy;
     private long _generation,_lastTimestamp;
     private long _nextGeneration;
+    private TouchContactLease? _lease;
     public CameraMouseLookService(TouchEngine touch, ILogger<CameraMouseLookService> logger, IMouseCursorController? cursor=null, TimeProvider? time=null, TargetWindowSessionManager? target=null)
     { _touch=touch;_logger=logger;_cursor=cursor;_time=time??TimeProvider.System;_target=target; }
     public bool IsActive { get { lock(_gate)return _active; } }
@@ -42,7 +43,7 @@ public sealed class CameraMouseLookService : IDisposable
                     if(!_cursor.TrySetPosition(_anchor))throw new InvalidOperationException("SetCursorPos failed"); _warpExpected=true;
                 }
                 _generation=target?.Generation??++_nextGeneration; _lastTimestamp=_time.GetTimestamp();
-                _touch.StartTouch((int)FixedContacts.Camera,_x,_y);_active=true;
+                _lease=_touch.StartTouch(_generation,"camera",_x,_y);if(_lease is null)throw new InvalidOperationException("No touch contact is available for camera");_active=true;
             }
             catch(Exception ex){RestoreCursor();_logger.LogError(ex,"Camera start failed closed");}
         }
@@ -64,13 +65,13 @@ public sealed class CameraMouseLookService : IDisposable
             var alpha=_settings.Smooth<=0?1:1-Math.Exp(-dt/Math.Max(1e-4,_settings.Smooth));_vx+=alpha*(tx-_vx);_vy+=alpha*(ty-_vy);
             var speed=Math.Sqrt(_vx*_vx+_vy*_vy);var max=Math.Max(0,_settings.MaxSpeed);if(speed>max&&speed>0){_vx*=max/speed;_vy*=max/speed;}
             _x+=_vx;_y+=_vy;var ox=_x-_anchor.X;var oy=_y-_anchor.Y;var radius=Math.Max(0,_settings.DragRadius);var distance=Math.Sqrt(ox*ox+oy*oy);if(distance>radius&&distance>0){_x=_anchor.X+ox*radius/distance;_y=_anchor.Y+oy*radius/distance;}
-            if(double.IsFinite(_x)&&double.IsFinite(_y))_touch.MoveTouch((int)FixedContacts.Camera,_x,_y);
+            if(double.IsFinite(_x)&&double.IsFinite(_y)&&_lease is not null)_touch.MoveTouch(_lease,_x,_y);
             if(_cursor is not null){if(!_cursor.TrySetPosition(_anchor))throw new InvalidOperationException("Camera recenter failed");_warpExpected=true;}
         }
         catch(Exception ex){_logger.LogError(ex,"Camera pipeline failed closed");StopCore();}
     }
     public void Stop(){lock(_gate)StopCore();}
-    private void StopCore(){if(!_active&&!_cursorSaved&&!_clipSaved&&!_hidden)return;var wasActive=_active;_active=false;_generation=0;_warpExpected=false;if(wasActive)_touch.EndTouch((int)FixedContacts.Camera);RestoreCursor();}
+    private void StopCore(){if(!_active&&!_cursorSaved&&!_clipSaved&&!_hidden)return;var lease=_lease;_lease=null;_active=false;_generation=0;_warpExpected=false;if(lease is not null)_touch.EndTouch(lease);RestoreCursor();}
     private void RestoreCursor(){if(_cursor is null)return;if(_clipSaved)_cursor.TrySetClip(_savedClip);if(_hidden)_cursor.TrySetVisible(true);if(_cursorSaved)_cursor.TrySetPosition(_savedPosition);_clipSaved=_hidden=_cursorSaved=false;}
     public void Dispose(){lock(_gate){if(_disposed)return;StopCore();_disposed=true;}}
 }

@@ -10,12 +10,22 @@ public class TouchEngine
     private readonly ContactManager _contacts;
     private readonly object _gate = new();
     private bool _acceptingContacts = true;
+    private readonly ITouchContactAllocator _allocator;
+    public ITouchContactAllocator ContactAllocator => _allocator;
 
-    public TouchEngine(ILogger<TouchEngine> logger, ContactManager contacts)
+    public TouchEngine(ILogger<TouchEngine> logger, ContactManager contacts, ITouchContactAllocator? allocator = null)
     {
         _logger = logger;
         _contacts = contacts;
+        _allocator = allocator ?? new TouchContactAllocator(new(contacts.MaxContacts,true,false,true), Microsoft.Extensions.Logging.Abstractions.NullLogger<TouchContactAllocator>.Instance);
     }
+
+    public TouchContactLease? StartTouch(long generation,string owner,double x,double y)
+    {
+        var lease=_allocator.TryAcquire(generation,owner);if(lease is null)return null;StartTouch(lease.ContactId,x,y);return lease;
+    }
+    public void MoveTouch(TouchContactLease lease,double x,double y){if(lease.State==TouchLeaseState.Active)MoveTouch(lease.ContactId,x,y);}
+    public void EndTouch(TouchContactLease lease){if(!_allocator.RequestRelease(lease))return;var sent=_contacts.WasSuccessfullyStarted(lease.ContactId);EndTouch(lease.ContactId);if(!sent){_contacts.CompleteReleasedContacts([lease.ContactId]);_allocator.CompleteSuccessfulUp([lease.ContactId]);}}
 
     public void StartTouch(int id, double x, double y)
     {

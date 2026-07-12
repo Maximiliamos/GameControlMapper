@@ -81,3 +81,16 @@ to `max(0, MaxSpeed)`, and the accumulated touch point is projected onto the cir
 `max(0, DragRadius)` around the anchor. Non-finite input is rejected. Stop is idempotent and restores clip,
 visibility, and the saved position after ending the camera contact. `UseMouseDrag` remains a compatibility field:
 its prior production semantics are ambiguous, so this change does not invent a new branch for it.
+
+## Touch contact allocation
+
+All production contacts acquire a `TouchContactLease` from the singleton `ITouchContactAllocator`. The allocator
+uses `TouchCapabilities.MaxContacts`, never evicts an active lease, and records contact ID, target-session
+generation, owner identity, state, and a monotonic diagnostic sequence. Camera, every joystick binding, every
+MouseArea, and each Tap/Hold/DoubleTap/Swipe execution use this same path; `FixedContacts` is legacy-only.
+
+A lease remains stable until its Up outcome is known. `EndTouch` changes it to `ReleasePending`. The scheduler
+returns the ID only after the backend accepts the Up frame. A failed Up is removed from frame retry and moved to
+`Quarantined`, so it cannot be issued again in the same backend/session generation. `Reset` on a new generation
+clears active and quarantined state. Stale or duplicate releases compare lease identity and generation and cannot
+release a newer owner. Capacity exhaustion rejects only the new action and leaves existing contacts untouched.

@@ -27,8 +27,8 @@ public sealed class CameraMouseLookServiceTests
     [Fact] public void CameraMaxSpeed_ClampsVelocity(){using var f=new F(settings:new(){Smooth=0,MaxSpeed=3,DragRadius=100});f.Real(100,0);Assert.InRange(f.Contact.X,500,503);}
     [Fact] public void CameraDragRadius_ClampsTouchPoint(){using var f=new F(settings:new(){Smooth=0,MaxSpeed=1000,DragRadius=10});f.Real(100,100);Assert.InRange(Math.Sqrt(Math.Pow(f.Contact.X-500,2)+Math.Pow(f.Contact.Y-500,2)),0,10.001);}
     [Fact] public void OldCameraGeneration_MoveIsIgnored(){using var f=new F();var g=f.Camera.Generation;f.Camera.Stop();f.Camera.Start(new(){Smooth=0},500,500);f.Camera.OnMouseMove(10,0,g);Assert.Equal(500,f.Contact.X);}
-    [Fact] public void LateMouseMoveAfterStop_IsIgnored(){using var f=new F();f.Camera.Stop();f.Camera.OnMouseMove(10,0);Assert.Equal(TouchState.Up,f.Contact.State);}
-    [Fact] public void ConcurrentFocusLossAndCtrlUp_SendOneUp(){using var f=new F();Parallel.Invoke(f.Camera.Stop,f.Camera.Stop);Assert.Equal(TouchState.Up,f.Contact.State);}
+    [Fact] public void LateMouseMoveAfterStop_IsIgnored(){using var f=new F();f.Camera.Stop();f.Camera.OnMouseMove(10,0);Assert.Empty(f.Contacts.ActiveContacts);}
+    [Fact] public void ConcurrentFocusLossAndCtrlUp_SendOneUp(){using var f=new F();Parallel.Invoke(f.Camera.Stop,f.Camera.Stop);Assert.Empty(f.Contacts.ActiveContacts);}
     [Fact] public void CursorControllerFailure_FailsClosed(){var c=new FakeCursor{FailGet=true};using var f=new F(c,false);Assert.False(f.Camera.IsActive);Assert.True(c.Visible);}
     [Fact] public void CameraException_StillRestoresCursorState(){using var f=new F();f.Cursor.FailSet=true;f.Real(5,0);AssertRestored(f);}
     [Fact] public void CameraDoesNotTouchCursorWhenMappingInactive(){var c=new FakeCursor();var contacts=MakeContacts();using var camera=new CameraMouseLookService(new(NullLogger<TouchEngine>.Instance,contacts),NullLogger<CameraMouseLookService>.Instance,c,TimeProvider.System,new TargetWindowSessionManager(new FailedGeometry(),NullLogger<TargetWindowSessionManager>.Instance));camera.Start(new(),1,1);Assert.Equal(0,c.SetCount);}

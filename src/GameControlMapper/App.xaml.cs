@@ -102,6 +102,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<Models.FrameContext>();
         services.AddSingleton<Models.TouchCapabilities>(s => new Models.TouchCapabilities(10, true, false, true));
         services.AddSingleton<ContactManager>();
+        services.AddSingleton<ITouchContactAllocator, TouchContactAllocator>();
         services.AddSingleton<TouchEngine>();
         services.AddSingleton<ITouchBackend, WindowsTouchBackend>();
         services.AddSingleton<TouchScheduler>();
