@@ -1,0 +1,10 @@
+<Window x:Class="GameControlMapper.TouchTestHarness.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Game Control Mapper — Touch Test Harness" Width="1100" Height="760" Background="#101827" Foreground="White" TouchDown="OnTouchDown" TouchMove="OnTouchMove" TouchUp="OnTouchUp" GotKeyboardFocus="OnFocusChanged" LostKeyboardFocus="OnFocusChanged">
+ <Grid Margin="10"><Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
+  <Grid Grid.Column="0"><Border Background="#172033" BorderBrush="#4CC9F0" BorderThickness="2" CornerRadius="8"/><Canvas x:Name="TouchCanvas" Background="Transparent" IsManipulationEnabled="False"/><TextBlock Text="СЕНСОРНАЯ РАБОЧАЯ ОБЛАСТЬ" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14" FontSize="18" Foreground="#8EA8C9" IsHitTestVisible="False"/></Grid>
+  <DockPanel Grid.Column="1" Margin="12,0,0,0"><StackPanel DockPanel.Dock="Top">
+   <TextBlock x:Name="FocusText" FontWeight="Bold"/><TextBlock x:Name="WindowText" TextWrapping="Wrap" Margin="0,4,0,8"/>
+   <UniformGrid Columns="4"><TextBlock x:Name="ActiveText"/><TextBlock x:Name="DownText"/><TextBlock x:Name="MoveText"/><TextBlock x:Name="UpText"/></UniformGrid>
+   <TextBlock x:Name="MaxText" Margin="0,5"/><WrapPanel><Button Content="Очистить журнал" Click="ClearLog" Margin="2"/><Button Content="Сбросить счётчики" Click="Reset" Margin="2"/><Button Content="Проверить активные контакты" Click="CheckActive" Margin="2"/><Button Content="Экспорт отчёта" Click="Export" Margin="2"/></WrapPanel>
+  </StackPanel><ListBox x:Name="EventLog" FontFamily="Consolas" FontSize="11" Background="#0B1220" Foreground="#D9E7F5"/></DockPanel>
+ </Grid>
+</Window>

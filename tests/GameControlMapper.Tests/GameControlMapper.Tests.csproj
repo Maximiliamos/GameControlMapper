@@ -14,5 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameControlMapper\GameControlMapper.csproj" />
+    <ProjectReference Include="..\..\src\GameControlMapper.TouchTestHarness\GameControlMapper.TouchTestHarness.csproj" />
   </ItemGroup>
 </Project>

@@ -1,10 +1,14 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameControlMapper", "src\GameControlMapper\GameControlMapper.csproj", "{A2D58884-4F68-4F22-A3A2-63AB9D09C62D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameControlMapper.Tests", "tests\GameControlMapper.Tests\GameControlMapper.Tests.csproj", "{87281D32-EC8F-4EAE-A4B0-95700B07A0BB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{CF6C15A4-4780-419B-8671-A1E3FFBC14ED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameControlMapper.TouchTestHarness", "src\GameControlMapper.TouchTestHarness\GameControlMapper.TouchTestHarness.csproj", "{64D746E4-409E-42B1-8A30-74686AF99861}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,5 +24,12 @@ Global
 		{87281D32-EC8F-4EAE-A4B0-95700B07A0BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{87281D32-EC8F-4EAE-A4B0-95700B07A0BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{87281D32-EC8F-4EAE-A4B0-95700B07A0BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64D746E4-409E-42B1-8A30-74686AF99861}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64D746E4-409E-42B1-8A30-74686AF99861}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64D746E4-409E-42B1-8A30-74686AF99861}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64D746E4-409E-42B1-8A30-74686AF99861}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{64D746E4-409E-42B1-8A30-74686AF99861} = {CF6C15A4-4780-419B-8671-A1E3FFBC14ED}
 	EndGlobalSection
 EndGlobal
