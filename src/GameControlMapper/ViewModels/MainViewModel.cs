@@ -657,7 +657,7 @@ public sealed class MainViewModel : ObservableObject
     {
         var currentHandle=CurrentProfile.Window.WindowHandle;var windows=_gameWindowService.FindWindows().Where(x=>x.Handle!=0).ToArray();
         TargetWindows.Clear();foreach(var window in windows)TargetWindows.Add(window);
-        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?3:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?2:1).FirstOrDefault();
+        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?4:x.ProcessName.Equals("MuMuNxDevice",StringComparison.OrdinalIgnoreCase)?3:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?2:1).FirstOrDefault();
         OnPropertyChanged(nameof(TargetWindowStatus));
     }
 

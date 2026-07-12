@@ -15,12 +15,16 @@ public sealed class MouseHookService : IDisposable
     private NativeMethods.POINT _lastRawPoint;
     private int _suppressedMoveCount;
     private volatile bool _captureMovement;
+    private volatile bool _suppressTouchPromotedMouseEvents;
     private int _queuedDx;
     private int _queuedDy;
     private int _moveDispatchScheduled;
     private int _queuedRawDx;
     private int _queuedRawDy;
     private int _rawMoveDispatchScheduled;
+    private readonly object _inputQueueGate=new();
+    private readonly Queue<Action> _inputQueue=[];
+    private bool _inputDrainScheduled;
     private bool _disposed;
 
     public MouseHookService(ILogger<MouseHookService> logger)
@@ -42,10 +46,12 @@ public sealed class MouseHookService : IDisposable
         get => _captureMovement;
         set => _captureMovement = value;
     }
+    public bool SuppressTouchPromotedMouseEvents{get=>_suppressTouchPromotedMouseEvents;set=>_suppressTouchPromotedMouseEvents=value;}
 
     public void ResetMovementTracking()
     {
         _lastPoint = null;
+        _lastRawPoint = default;
     }
 
     public void SuppressNextMove()
@@ -106,8 +112,13 @@ public sealed class MouseHookService : IDisposable
         {
             var message = wParam.ToInt32();
             var data = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+            if (_suppressTouchPromotedMouseEvents && IsTouchPromotedMouseEvent(data.dwExtraInfo))
+            {
+                return new IntPtr(1);
+            }
             if ((data.flags & NativeMethods.LLMHF_INJECTED) == NativeMethods.LLMHF_INJECTED)
             {
+                if (_captureMovement && message == NativeMethods.WM_MOUSEMOVE) return new IntPtr(1);
                 return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
             }
 
@@ -166,6 +177,9 @@ public sealed class MouseHookService : IDisposable
         return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
     }
 
+    internal static bool IsTouchPromotedMouseEvent(IntPtr extraInfo) =>
+        (unchecked((ulong)extraInfo.ToInt64()) & NativeMethods.MI_WP_SIGNATURE_MASK) == NativeMethods.MI_WP_SIGNATURE;
+
     private static bool TryGetMouseVirtualKey(int message, out int virtualKey, out bool isDown)
     {
         virtualKey = message switch
@@ -196,7 +210,7 @@ public sealed class MouseHookService : IDisposable
 
         ThreadPool.QueueUserWorkItem(_ =>
         {
-            try
+            while(true)
             {
                 var totalDx = Interlocked.Exchange(ref _queuedDx, 0);
                 var totalDy = Interlocked.Exchange(ref _queuedDy, 0);
@@ -204,10 +218,9 @@ public sealed class MouseHookService : IDisposable
                 {
                     Moved?.Invoke(this, (totalDx, totalDy));
                 }
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _moveDispatchScheduled, 0);
+                Interlocked.Exchange(ref _moveDispatchScheduled,0);
+                if(Volatile.Read(ref _queuedDx)==0&&Volatile.Read(ref _queuedDy)==0)break;
+                if(Interlocked.CompareExchange(ref _moveDispatchScheduled,1,0)!=0)break;
             }
         });
     }
@@ -220,13 +233,15 @@ public sealed class MouseHookService : IDisposable
         if (Interlocked.Exchange(ref _rawMoveDispatchScheduled, 1) == 1) return;
         ThreadPool.QueueUserWorkItem(_ =>
         {
-            try
+            while(true)
             {
                 var totalDx = Interlocked.Exchange(ref _queuedRawDx, 0);
                 var totalDy = Interlocked.Exchange(ref _queuedRawDy, 0);
                 if (!_disposed && (totalDx != 0 || totalDy != 0)) MouseMoved?.Invoke(totalDx, totalDy);
+                Interlocked.Exchange(ref _rawMoveDispatchScheduled,0);
+                if(Volatile.Read(ref _queuedRawDx)==0&&Volatile.Read(ref _queuedRawDy)==0)break;
+                if(Interlocked.CompareExchange(ref _rawMoveDispatchScheduled,1,0)!=0)break;
             }
-            finally { Interlocked.Exchange(ref _rawMoveDispatchScheduled, 0); }
         });
     }
 
@@ -237,7 +252,7 @@ public sealed class MouseHookService : IDisposable
             return;
         }
 
-        ThreadPool.QueueUserWorkItem(_ =>
+        EnqueueInput(() =>
         {
             if (!_disposed)
             {
@@ -245,5 +260,11 @@ public sealed class MouseHookService : IDisposable
                 handler?.Invoke(this, virtualKey);
             }
         });
+    }
+
+    private void EnqueueInput(Action action)
+    {
+        lock(_inputQueueGate){_inputQueue.Enqueue(action);if(_inputDrainScheduled)return;_inputDrainScheduled=true;}
+        ThreadPool.QueueUserWorkItem(_=>{while(true){Action? next;lock(_inputQueueGate){if(_inputQueue.Count==0){_inputDrainScheduled=false;return;}next=_inputQueue.Dequeue();}try{next();}catch(Exception ex){_logger.LogError(ex,"Mouse input dispatch failed");}}});
     }
 }

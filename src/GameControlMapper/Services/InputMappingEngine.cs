@@ -130,6 +130,7 @@ public sealed class InputMappingEngine : IDisposable
             _logger.LogInformation("Mapping session {SessionId} started",_mappingSessionId);
             _contactAllocator.Reset(targetStart.Session!.Generation);
             PublishInputPermission(targetStart.Session!.Generation);
+            _mouseHook.SuppressTouchPromotedMouseEvents = true;
             _touchEngine.StartAcceptingContacts();
             _touchScheduler.Resume();
             if (_gestureCancellation.IsCancellationRequested)
@@ -150,6 +151,9 @@ public sealed class InputMappingEngine : IDisposable
     public Task<TouchShutdownResult> StopAsync(string reason="manual stop")
     {
         Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
+        _mouseHook.SuppressTouchPromotedMouseEvents = false;
+        _mouseHook.CaptureMovement = false;
+        _mouseHook.ResetMovementTracking();
         lock (_gate)
         {
             if (_stopTask is not null) return _stopTask;
@@ -331,7 +335,10 @@ public sealed class InputMappingEngine : IDisposable
                     "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
                     rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
                     scaledAnchor.X, scaledAnchor.Y);
+                _mouseHook.ResetMovementTracking();
+                _mouseHook.CaptureMovement=true;
                 _cameraMouseLook.Start(_profile.Camera, scaledAnchor.X, scaledAnchor.Y);
+                if(!_cameraMouseLook.IsActive)_mouseHook.CaptureMovement=false;
                 return;
             }
 
@@ -406,6 +413,8 @@ public sealed class InputMappingEngine : IDisposable
             if (cameraKey == virtualKey)
             {
                 _cameraMouseLook.Stop();
+                _mouseHook.CaptureMovement=false;
+                _mouseHook.ResetMovementTracking();
             }
         }
         

@@ -18,7 +18,7 @@ public sealed class ApplicationCapabilities
             new("profile-backup", "Резервные копии профилей", CapabilityStatus.Supported, "Локальное хранение"),
             new("xinput", "XInput", CapabilityStatus.UnsupportedInBeta, "Отключено в beta"),
             new("macro-sequence", "Macro/Sequence", CapabilityStatus.UnsupportedInBeta, "Runtime отключён в beta"),
-            new("raw-input", "RawInput", CapabilityStatus.UnsupportedInBeta, "Не реализовано"),
+            new("raw-input", "RawInput", CapabilityStatus.UnsupportedInBeta, "Отдельный пользовательский режим не реализован"),
             new("interception", "Interception", CapabilityStatus.UnsupportedInBeta, "Не реализовано"),
             new("vigem", "ViGEm", CapabilityStatus.UnsupportedInBeta, "Не реализовано"),
             new("adb", "ADB/Android", CapabilityStatus.UnsupportedInBeta, "Не реализовано"),

@@ -12,6 +12,9 @@ public sealed class KeyboardHookService : IDisposable
     private readonly NativeMethods.LowLevelProc _callback;
     private IntPtr _hook;
     private bool _disposed;
+    private readonly object _inputQueueGate=new();
+    private readonly Queue<Action> _inputQueue=[];
+    private bool _inputDrainScheduled;
 
     public KeyboardHookService(ILogger<KeyboardHookService> logger)
     {
@@ -105,13 +108,14 @@ public sealed class KeyboardHookService : IDisposable
             return;
         }
 
-        ThreadPool.QueueUserWorkItem(_ =>
+        lock(_inputQueueGate){_inputQueue.Enqueue(() =>
         {
             if (!_disposed)
             {
                 generated?.Invoke(this, new GeneratedInputEvent(virtualKey, generation));
                 handler?.Invoke(this, virtualKey);
             }
-        });
+        });if(_inputDrainScheduled)return;_inputDrainScheduled=true;}
+        ThreadPool.QueueUserWorkItem(_=>{while(true){Action next;lock(_inputQueueGate){if(_inputQueue.Count==0){_inputDrainScheduled=false;return;}next=_inputQueue.Dequeue();}try{next();}catch(Exception ex){_logger.LogError(ex,"Keyboard input dispatch failed");}}});
     }
 }

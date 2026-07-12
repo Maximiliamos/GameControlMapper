@@ -39,6 +39,8 @@ public static class NativeMethods
     public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int LLMHF_INJECTED = 0x00000001;
+    public const ulong MI_WP_SIGNATURE = 0xFF515700UL;
+    public const ulong MI_WP_SIGNATURE_MASK = 0xFFFFFF00UL;
     public const uint GA_ROOT = 2;
     public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     public const uint WINEVENT_OUTOFCONTEXT = 0;

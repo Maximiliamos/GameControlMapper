@@ -82,6 +82,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
         services.AddSingleton<MouseHookService>();
+        services.AddSingleton<IRelativeMouseInputSource,RawMouseInputSource>();
         services.AddSingleton<IMouseCursorController, WindowsMouseCursorController>();
         services.AddSingleton(provider =>
         {
@@ -90,7 +91,7 @@ public partial class App : System.Windows.Application
                 provider.GetRequiredService<ILogger<CameraMouseLookService>>(),
                 provider.GetRequiredService<IMouseCursorController>(), provider.GetRequiredService<TimeProvider>(),
                 provider.GetRequiredService<TargetWindowSessionManager>());
-            provider.GetRequiredService<MouseHookService>().MouseMoved += camera.OnMouseMove;
+            provider.GetRequiredService<IRelativeMouseInputSource>().Moved += camera.OnMouseMove;
             return camera;
         });
         services.AddSingleton(Models.ApplicationCapabilities.Beta);
