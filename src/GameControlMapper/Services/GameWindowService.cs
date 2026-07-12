@@ -6,6 +6,12 @@ namespace GameControlMapper.Services;
 
 public sealed class GameWindowService
 {
+    public bool ActivateWindow(nint handle)
+    {
+        if(handle==0||!NativeMethods.IsWindow(handle))return false;
+        if(IsIconic(handle))ShowWindow(handle,9);
+        return SetForegroundWindow(handle);
+    }
     public IReadOnlyList<GameWindowInfo> FindWindows()
     {
         var windows = new List<GameWindowInfo>();
@@ -56,4 +62,8 @@ public sealed class GameWindowService
             return string.Empty;
         }
     }
+
+    [DllImport("user32.dll")]private static extern bool SetForegroundWindow(nint hWnd);
+    [DllImport("user32.dll")]private static extern bool IsIconic(nint hWnd);
+    [DllImport("user32.dll")]private static extern bool ShowWindow(nint hWnd,int command);
 }

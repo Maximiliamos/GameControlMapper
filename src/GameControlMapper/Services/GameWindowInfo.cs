@@ -7,4 +7,7 @@ public sealed record GameWindowInfo(
     int X,
     int Y,
     int Width,
-    int Height);
+    int Height)
+{
+    public string DisplayName=>$"{ProcessName} — {Title} ({Width}×{Height})";
+}

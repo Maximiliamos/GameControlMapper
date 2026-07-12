@@ -15,24 +15,27 @@ public sealed class MainViewModel : ObservableObject
     private readonly ILogger<MainViewModel> _logger;
     private readonly DiagnosticExportService _diagnostics;
     private readonly IMapperProfileValidator _profileValidator;
+    private readonly GameWindowService _gameWindowService;
     private MapperProfile _currentProfile = MapperProfile.CreateDefault();
     private string? _selectedProfileName;
     private BindingViewModel? _selectedBinding;
     private ControlBinding? _clipboardBinding;
     private bool _isMappingActive;
     private BindingKind _newBindingKind = BindingKind.Tap;
+    private GameWindowInfo? _selectedTargetWindow;
 
     public MainViewModel(
         IProfileStore profileStore,
         InputMappingEngine mappingEngine,
         AppLogSink logSink,
-        ILogger<MainViewModel> logger, DiagnosticExportService diagnostics,IMapperProfileValidator profileValidator)
+        ILogger<MainViewModel> logger, DiagnosticExportService diagnostics,IMapperProfileValidator profileValidator,GameWindowService gameWindowService)
     {
         _profileStore = profileStore;
         _mappingEngine = mappingEngine;
         _logger = logger;
         _diagnostics=diagnostics;
         _profileValidator=profileValidator;
+        _gameWindowService=gameWindowService;
         Logs = logSink.Entries;
         BindingKinds = Enum.GetValues<BindingKind>().Where(k=>k is not BindingKind.Macro and not BindingKind.Sequence).ToArray();
 
@@ -49,10 +52,11 @@ public sealed class MainViewModel : ObservableObject
         CopyBindingCommand = new RelayCommand(_ => CopySelected(), _ => SelectedBinding is not null);
         PasteBindingCommand = new RelayCommand(_ => PasteBinding(), _ => _clipboardBinding is not null);
         CopyLogsCommand = new RelayCommand(_ => CopyLogs());
-        ActivateCommand = new RelayCommand(_ => ActivateMapping());
+        ActivateCommand = new AsyncRelayCommand(_ => ActivateMappingAsync());
         DeactivateCommand = new AsyncRelayCommand(_ => DeactivateMappingAsync());
         SelectAreaCommand = new RelayCommand(_ => SelectAreaRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         PickCenterCommand = new RelayCommand(_ => PickCenterRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
+        RefreshWindowsCommand = new RelayCommand(_ => RefreshTargetWindows());
 
         _mappingEngine.ActiveChanged += (_, active) => IsMappingActive = active;
         _mappingEngine.OverlayToggleRequested += (_, _) => RaiseOnUi(() => ToggleOverlayRequested?.Invoke(this, EventArgs.Empty));
@@ -63,6 +67,7 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<string> Profiles { get; } = [];
     public ObservableCollection<BindingViewModel> Bindings { get; } = [];
     public ObservableCollection<string> Logs { get; }
+    public ObservableCollection<GameWindowInfo> TargetWindows { get; }=[];
     public IReadOnlyList<BindingKind> BindingKinds { get; }
     public IReadOnlyList<ApplicationCapability> Capabilities => ApplicationCapabilities.Beta.Items;
     public string BetaVersion
@@ -92,10 +97,25 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand CopyBindingCommand { get; }
     public RelayCommand PasteBindingCommand { get; }
     public RelayCommand CopyLogsCommand { get; }
-    public RelayCommand ActivateCommand { get; }
+    public AsyncRelayCommand ActivateCommand { get; }
     public AsyncRelayCommand DeactivateCommand { get; }
     public RelayCommand SelectAreaCommand { get; }
     public RelayCommand PickCenterCommand { get; }
+    public RelayCommand RefreshWindowsCommand { get; }
+
+    public GameWindowInfo? SelectedTargetWindow
+    {
+        get=>_selectedTargetWindow;
+        set
+        {
+            if(!SetProperty(ref _selectedTargetWindow,value)||value is null)return;
+            CurrentProfile.Window.ProcessName=value.ProcessName;CurrentProfile.Window.WindowTitle=value.Title;CurrentProfile.Window.WindowHandle=value.Handle.ToInt64();CurrentProfile.Window.X=value.X;CurrentProfile.Window.Y=value.Y;CurrentProfile.Window.Width=value.Width;CurrentProfile.Window.Height=value.Height;
+            OnPropertyChanged(nameof(TargetWindowStatus));
+            _mappingEngine.SetProfile(CurrentProfile);
+            _logger.LogInformation("Target window selected: {ProcessName}; handle=0x{Handle:X}",value.ProcessName,value.Handle.ToInt64());
+        }
+    }
+    public string TargetWindowStatus=>CurrentProfile.Window.WindowHandle==0?"Целевое окно не выбрано":"Выбрано: "+CurrentProfile.Window.WindowTitle;
 
     public string? SelectedProfileName
     {
@@ -228,6 +248,7 @@ public sealed class MainViewModel : ObservableObject
         }
 
         SelectedProfileName = Profiles.FirstOrDefault();
+        RefreshTargetWindows();
     }
 
     private async Task NewProfileAsync()
@@ -274,6 +295,7 @@ public sealed class MainViewModel : ObservableObject
 
         SelectedBinding = Bindings.FirstOrDefault();
         _mappingEngine.SetProfile(profile);
+        RefreshTargetWindows();
         _logger.LogInformation("Profile loaded: {Profile}", profile.Name);
         return Task.CompletedTask;
     }
@@ -604,9 +626,22 @@ public sealed class MainViewModel : ObservableObject
         });
     }
 
-    private void ActivateMapping()
+    private async Task ActivateMappingAsync()
     {
         CurrentProfile.Bindings = Bindings.Select(binding => binding.Model).ToList();
+        if(CurrentProfile.Window.WindowHandle==0)
+        {
+            _logger.LogWarning("Mapping start rejected: target window is not selected");
+            System.Windows.MessageBox.Show("Сначала выберите окно игры или эмулятора в списке «Целевое окно».","Не выбрано окно игры",MessageBoxButton.OK,MessageBoxImage.Information);
+            return;
+        }
+        if(!_gameWindowService.ActivateWindow(new IntPtr(CurrentProfile.Window.WindowHandle)))
+        {
+            _logger.LogWarning("Mapping start rejected: target window could not be activated");
+            System.Windows.MessageBox.Show("Не удалось активировать выбранное окно. Разверните MuMu Player и попробуйте снова.","Окно игры недоступно",MessageBoxButton.OK,MessageBoxImage.Warning);
+            return;
+        }
+        await Task.Delay(200);
         var unsupported=CurrentProfile.Bindings.Where(x=>x.IsActive&&x.Kind is BindingKind.Macro or BindingKind.Sequence).Select(x=>x.Name).ToArray();
         if(CurrentProfile.Gamepad.Enabled||unsupported.Length>0)
         {
@@ -616,6 +651,14 @@ public sealed class MainViewModel : ObservableObject
         _mappingEngine.SetProfile(CurrentProfile);
         _mappingEngine.Start();
         ToggleOverlayRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RefreshTargetWindows()
+    {
+        var currentHandle=CurrentProfile.Window.WindowHandle;var windows=_gameWindowService.FindWindows().Where(x=>x.Handle!=0).ToArray();
+        TargetWindows.Clear();foreach(var window in windows)TargetWindows.Add(window);
+        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?3:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?2:1).FirstOrDefault();
+        OnPropertyChanged(nameof(TargetWindowStatus));
     }
 
     private async Task DeactivateMappingAsync()
