@@ -10,6 +10,7 @@ namespace GameControlMapper;
 public partial class App : System.Windows.Application
 {
     private ServiceProvider? _serviceProvider;
+    private int _crashDispatch;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -19,6 +20,9 @@ public partial class App : System.Windows.Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         _serviceProvider.GetRequiredService<DpiAwarenessDiagnostics>().LogCurrentContext();
 
         // Initialize Touch Backend and Scheduler
@@ -43,6 +47,7 @@ public partial class App : System.Windows.Application
         if (_serviceProvider != null)
         {
             var touchScheduler = _serviceProvider.GetService<TouchScheduler>();
+            _serviceProvider.GetService<InputMappingEngine>()?.StopAsync("application shutdown").Wait(TimeSpan.FromSeconds(3));
             touchScheduler?.ShutdownAsync().GetAwaiter().GetResult();
             _serviceProvider.GetService<ITouchBackend>()?.Shutdown();
         }
@@ -51,18 +56,27 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 
+    private async void OnDispatcherUnhandledException(object sender,System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e){await HandleCrashAsync("Dispatcher",e.Exception);}
+    private void OnDomainUnhandledException(object? sender,UnhandledExceptionEventArgs e){if(e.ExceptionObject is Exception ex)HandleCrashAsync("AppDomain",ex).GetAwaiter().GetResult();}
+    private async void OnUnobservedTaskException(object? sender,UnobservedTaskExceptionEventArgs e){await HandleCrashAsync("TaskScheduler",e.Exception);e.SetObserved();}
+    private async Task HandleCrashAsync(string source,Exception ex){if(Interlocked.Exchange(ref _crashDispatch,1)!=0)return;try{if(_serviceProvider is not null)await _serviceProvider.GetRequiredService<CrashHandlingService>().HandleAsync(source,ex);}catch{}finally{Volatile.Write(ref _crashDispatch,0);}}
+
     private static void ConfigureServices(IServiceCollection services)
     {
         var logSink = new AppLogSink();
+        var fileLog = new FileLogSink();
         services.AddSingleton(logSink);
+        services.AddSingleton(fileLog);
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
-            builder.AddProvider(new AppLoggerProvider(logSink));
+            builder.AddProvider(new AppLoggerProvider(logSink,fileLog));
         });
 
         services.AddSingleton<IMapperProfileValidator, MapperProfileValidator>();
         services.AddSingleton<IProfileStore, ProfileStore>();
+        services.AddSingleton<MappingSessionDiagnostics>();
+        services.AddSingleton<DiagnosticExportService>();
         services.AddSingleton<CoordinateScaler>();
         services.AddSingleton<IInputSimulator, SendInputSimulator>();
         services.AddSingleton<ITouchSimulator, WindowsTouchSimulator>();
@@ -82,6 +96,7 @@ public partial class App : System.Windows.Application
         });
         services.AddSingleton<XInputGamepadMapper>();
         services.AddSingleton<InputMappingEngine>();
+        services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();
         services.AddSingleton<IGameWindowNativeAdapter, WindowsGameWindowNativeAdapter>();
         services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();

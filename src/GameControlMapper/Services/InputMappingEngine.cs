@@ -32,6 +32,9 @@ public sealed class InputMappingEngine : IDisposable
     private MapperProfile? _profile;
     private int _coordinateWarningLogged;
     private InputPermissionSnapshot _inputPermission = InputPermissionSnapshot.Denied;
+    private readonly MappingSessionDiagnostics? _sessionDiagnostics;
+    private string? _mappingSessionId;
+    private string _stopReason="manual stop";
 
     public InputMappingEngine(
         KeyboardHookService keyboardHook,
@@ -46,7 +49,7 @@ public sealed class InputMappingEngine : IDisposable
         TargetWindowSessionManager targetSession,
         WindowCoordinateTransformer windowCoordinateTransformer,
         ILogger<InputMappingEngine> logger,
-        ITargetWindowActivationMonitor? activationMonitor = null, ITouchContactAllocator? contactAllocator = null)
+        ITargetWindowActivationMonitor? activationMonitor = null, ITouchContactAllocator? contactAllocator = null, MappingSessionDiagnostics? sessionDiagnostics = null)
     {
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
@@ -62,6 +65,7 @@ public sealed class InputMappingEngine : IDisposable
         _logger = logger;
         _activationMonitor = activationMonitor;
         _contactAllocator = contactAllocator ?? touchEngine.ContactAllocator;
+        _sessionDiagnostics=sessionDiagnostics;
 
         _keyboardHook.GeneratedKeyDown += OnGeneratedKeyDown;
         _keyboardHook.GeneratedKeyUp += OnGeneratedKeyUp;
@@ -125,6 +129,8 @@ public sealed class InputMappingEngine : IDisposable
             _stopTask = null;
             Interlocked.Exchange(ref _coordinateWarningLogged, 0);
             IsActive = true;
+            _mappingSessionId=_sessionDiagnostics?.Start()??Guid.NewGuid().ToString("N")[..8];_stopReason="manual stop";
+            _logger.LogInformation("Mapping session {SessionId} started",_mappingSessionId);
             _contactAllocator.Reset(targetStart.Session!.Generation);
             PublishInputPermission(targetStart.Session!.Generation);
             _touchEngine.StartAcceptingContacts();
@@ -144,14 +150,17 @@ public sealed class InputMappingEngine : IDisposable
         _logger.LogInformation("Input mapping active.");
     }
 
-    public void Stop() => StopAsync().GetAwaiter().GetResult();
+    public void Stop() => StopAsync("manual stop").GetAwaiter().GetResult();
 
-    public Task<TouchShutdownResult> StopAsync()
+    public Task<TouchShutdownResult> StopAsync(string reason="manual stop")
     {
         Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
         lock (_gate)
         {
             if (_stopTask is not null) return _stopTask;
+
+            _stopReason=reason;
+            _logger.LogInformation("Mapping session {SessionId} stopping. Reason={Reason}; active contacts={Count}",_mappingSessionId,_stopReason,_contactAllocator.ActiveLeases.Count);
 
             IsActive = false;
             _targetSession.Stop();
@@ -191,13 +200,15 @@ public sealed class InputMappingEngine : IDisposable
             result = new TouchShutdownResult(false, false, [], []);
         }
         ActiveChanged?.Invoke(this, false);
+        _sessionDiagnostics?.Stop(_stopReason,result.Succeeded,_contactAllocator.ActiveLeases.Count);
+        _logger.LogInformation("Mapping session {SessionId} stopped. Reason={Reason}; release succeeded={Succeeded}",_mappingSessionId,_stopReason,result.Succeeded);
         _logger.LogInformation("Input mapping inactive. Touch release succeeded: {Succeeded}", result.Succeeded);
         return result;
     }
 
     private void OnTargetSessionInvalidated(object? sender, EventArgs e)
     {
-        _ = StopAsync();
+        _ = StopAsync("geometry invalidation");
     }
 
     private long CaptureGeneration() => Volatile.Read(ref _inputPermission).Generation;
@@ -206,7 +217,7 @@ public sealed class InputMappingEngine : IDisposable
     {
         if (!IsActive || _targetSession.IsForegroundActive()) return;
         Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
-        _ = StopAsync();
+        _ = StopAsync("focus loss");
     }
 
     private void PublishInputPermission(long generation)
@@ -290,7 +301,7 @@ public sealed class InputMappingEngine : IDisposable
 
         if (_hotkeyParser.Matches(_profile.DisableHotkey, virtualKey, _pressedKeys))
         {
-            Stop();
+            StopAsync("F9").GetAwaiter().GetResult();
             return;
         }
 

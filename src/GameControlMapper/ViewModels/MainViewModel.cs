@@ -12,6 +12,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly IProfileStore _profileStore;
     private readonly InputMappingEngine _mappingEngine;
     private readonly ILogger<MainViewModel> _logger;
+    private readonly DiagnosticExportService _diagnostics;
     private MapperProfile _currentProfile = MapperProfile.CreateDefault();
     private string? _selectedProfileName;
     private BindingViewModel? _selectedBinding;
@@ -23,11 +24,12 @@ public sealed class MainViewModel : ObservableObject
         IProfileStore profileStore,
         InputMappingEngine mappingEngine,
         AppLogSink logSink,
-        ILogger<MainViewModel> logger)
+        ILogger<MainViewModel> logger, DiagnosticExportService diagnostics)
     {
         _profileStore = profileStore;
         _mappingEngine = mappingEngine;
         _logger = logger;
+        _diagnostics=diagnostics;
         Logs = logSink.Entries;
         BindingKinds = Enum.GetValues<BindingKind>();
 
@@ -37,6 +39,7 @@ public sealed class MainViewModel : ObservableObject
         DeleteProfileCommand = new AsyncRelayCommand(_ => DeleteProfileAsync(), _ => SelectedProfileName is not null);
         ImportProfileCommand = new AsyncRelayCommand(_ => ImportProfileAsync());
         ExportProfileCommand = new AsyncRelayCommand(_ => ExportProfileAsync());
+        ExportDiagnosticsCommand = new AsyncRelayCommand(_ => ExportDiagnosticsAsync());
         AddBindingCommand = new RelayCommand(_ => AddBinding());
         DuplicateBindingCommand = new RelayCommand(_ => DuplicateSelected(), _ => SelectedBinding is not null);
         DeleteBindingCommand = new RelayCommand(_ => DeleteSelected(), _ => SelectedBinding is not null);
@@ -70,6 +73,7 @@ public sealed class MainViewModel : ObservableObject
     public AsyncRelayCommand DeleteProfileCommand { get; }
     public AsyncRelayCommand ImportProfileCommand { get; }
     public AsyncRelayCommand ExportProfileCommand { get; }
+    public AsyncRelayCommand ExportDiagnosticsCommand { get; }
     public RelayCommand AddBindingCommand { get; }
     public RelayCommand DuplicateBindingCommand { get; }
     public RelayCommand DeleteBindingCommand { get; }
@@ -489,6 +493,14 @@ public sealed class MainViewModel : ObservableObject
         {
             await _profileStore.ExportAsync(CurrentProfile, dialog.FileName);
         }
+    }
+
+    private async Task ExportDiagnosticsAsync()
+    {
+        var dialog=new Microsoft.Win32.SaveFileDialog{Filter="ZIP (*.zip)|*.zip",FileName="game-control-mapper-diagnostics.zip"};
+        if(dialog.ShowDialog()!=true)return;
+        try{await _diagnostics.ExportAsync(dialog.FileName);}
+        catch(Exception ex){_logger.LogError(ex,"Diagnostic export failed");System.Windows.MessageBox.Show("Не удалось экспортировать диагностику. Журналы не изменены.","Диагностика",MessageBoxButton.OK,MessageBoxImage.Warning);}
     }
 
     private void AddBinding()

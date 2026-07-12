@@ -35,6 +35,7 @@
                     <Button Content="Сохранить" Command="{Binding SaveProfileCommand}" />
                     <Button Content="Импорт" Command="{Binding ImportProfileCommand}" />
                     <Button Content="Экспорт" Command="{Binding ExportProfileCommand}" />
+                    <Button Content="Экспорт диагностики" Command="{Binding ExportDiagnosticsCommand}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock Text="{Binding ResolutionText}" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,14,0" />

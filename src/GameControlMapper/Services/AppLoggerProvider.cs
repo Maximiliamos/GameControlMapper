@@ -5,15 +5,17 @@ namespace GameControlMapper.Services;
 public sealed class AppLoggerProvider : ILoggerProvider
 {
     private readonly AppLogSink _sink;
+    private readonly FileLogSink _file;
 
-    public AppLoggerProvider(AppLogSink sink)
+    public AppLoggerProvider(AppLogSink sink, FileLogSink file)
     {
         _sink = sink;
+        _file = file;
     }
 
     public ILogger CreateLogger(string categoryName)
     {
-        return new AppLogger(categoryName, _sink);
+        return new AppLogger(categoryName, _sink, _file);
     }
 
     public void Dispose()
@@ -24,11 +26,13 @@ public sealed class AppLoggerProvider : ILoggerProvider
     {
         private readonly string _categoryName;
         private readonly AppLogSink _sink;
+        private readonly FileLogSink _file;
 
-        public AppLogger(string categoryName, AppLogSink sink)
+        public AppLogger(string categoryName, AppLogSink sink, FileLogSink file)
         {
             _categoryName = categoryName;
             _sink = sink;
+            _file = file;
         }
 
         public IDisposable? BeginScope<TState>(TState state)
@@ -62,6 +66,7 @@ public sealed class AppLoggerProvider : ILoggerProvider
             }
 
             _sink.Add($"[{logLevel}] {shortCategory}: {text}");
+            _file.Write(DateTimeOffset.Now,logLevel.ToString(),shortCategory,formatter(state,exception),exception);
         }
     }
 }

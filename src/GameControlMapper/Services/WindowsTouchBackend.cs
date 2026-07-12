@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using GameControlMapper.Models;
 using GameControlMapper.Win32;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel;
 
 namespace GameControlMapper.Services;
 
@@ -11,10 +12,12 @@ public class WindowsTouchBackend : ITouchBackend
     private readonly ILogger<WindowsTouchBackend> _logger;
     private bool _initialized;
     private bool _disposed;
+    private readonly MappingSessionDiagnostics? _sessions;private readonly NativeErrorRateLimiter _errors=new();
 
-    public WindowsTouchBackend(ILogger<WindowsTouchBackend> logger)
+    public WindowsTouchBackend(ILogger<WindowsTouchBackend> logger,MappingSessionDiagnostics? sessions=null)
     {
         _logger = logger;
+        _sessions=sessions;
     }
 
     public TouchCapabilities Capabilities => new TouchCapabilities(10, true, false, true);
@@ -32,7 +35,7 @@ public class WindowsTouchBackend : ITouchBackend
         if (!ok)
         {
             int err = Marshal.GetLastWin32Error();
-            _logger.LogError("InitializeTouchInjection failed: {Error}", err);
+            LogNative("InitializeTouchInjection",err,LogLevel.Error);
             return false;
         }
 
@@ -66,11 +69,12 @@ public class WindowsTouchBackend : ITouchBackend
         if (!ok)
         {
             int err = Marshal.GetLastWin32Error();
-            _logger.LogWarning("InjectTouchInput failed: {Error}", err);
+            LogNative("InjectTouchInput",err,LogLevel.Warning);
         }
 
         return ok;
     }
+    private void LogNative(string operation,int code,LogLevel level){var key=$"{operation}:{code}";if(!_errors.ShouldLog(key,DateTimeOffset.Now,out var suppressed))return;var message=new Win32Exception(code).Message;_logger.Log(level,"{Operation} failed. Win32 code={Code}; message={Message}; mapping session={SessionId}; previously suppressed={Suppressed}",operation,code,message,_sessions?.Last.SessionId??"none",suppressed);}
 
     private NativeMethods.POINTER_TOUCH_INFO Convert(TouchContact contact)
     {

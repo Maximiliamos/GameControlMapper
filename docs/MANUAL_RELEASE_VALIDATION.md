@@ -66,3 +66,15 @@ profile, and start mapping with F8. The harness must only receive and visualize 
 
 Finally press **Проверить активные контакты**. PASS requires zero active IDs, balanced lifecycle for every sent
 contact, no `PROTOCOL ERROR`, no Win32 error 87, and no automatic restart after focus loss.
+
+## Production diagnostics
+
+Run a normal mapping session and stop it by F9, focus loss, and geometry invalidation. Verify that
+`%LocalAppData%\GameControlMapper\Logs` contains UTF-8 structured entries with a short session ID, the correct stop
+reason, active-contact count, and final release result, without per-frame/mouse-move spam. Trigger only a controlled
+non-destructive test exception in a dedicated build and verify cursor restoration plus `crash-report.txt`.
+
+Use **Экспорт диагностики** and inspect the ZIP. It must contain metadata, README, exception summary, and recent
+logs, but no JSON profile content, pressed keys, process/window lists, document contents, credentials, or unredacted
+user-home paths. PASS requires at most three rotated archives, meaningful Win32 operation/code/message entries,
+successful application shutdown, and an export that does not modify the source logs. Result: ______ Commit: ______
