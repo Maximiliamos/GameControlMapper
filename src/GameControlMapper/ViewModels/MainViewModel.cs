@@ -4,6 +4,7 @@ using GameControlMapper.Models;
 using GameControlMapper.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
+using System.Reflection;
 
 namespace GameControlMapper.ViewModels;
 
@@ -13,6 +14,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly InputMappingEngine _mappingEngine;
     private readonly ILogger<MainViewModel> _logger;
     private readonly DiagnosticExportService _diagnostics;
+    private readonly IMapperProfileValidator _profileValidator;
     private MapperProfile _currentProfile = MapperProfile.CreateDefault();
     private string? _selectedProfileName;
     private BindingViewModel? _selectedBinding;
@@ -24,14 +26,15 @@ public sealed class MainViewModel : ObservableObject
         IProfileStore profileStore,
         InputMappingEngine mappingEngine,
         AppLogSink logSink,
-        ILogger<MainViewModel> logger, DiagnosticExportService diagnostics)
+        ILogger<MainViewModel> logger, DiagnosticExportService diagnostics,IMapperProfileValidator profileValidator)
     {
         _profileStore = profileStore;
         _mappingEngine = mappingEngine;
         _logger = logger;
         _diagnostics=diagnostics;
+        _profileValidator=profileValidator;
         Logs = logSink.Entries;
-        BindingKinds = Enum.GetValues<BindingKind>();
+        BindingKinds = Enum.GetValues<BindingKind>().Where(k=>k is not BindingKind.Macro and not BindingKind.Sequence).ToArray();
 
         NewProfileCommand = new AsyncRelayCommand(_ => NewProfileAsync());
         LoadProfileCommand = new AsyncRelayCommand(parameter => LoadProfileAsync(parameter as string), parameter => parameter is string);
@@ -61,6 +64,15 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<BindingViewModel> Bindings { get; } = [];
     public ObservableCollection<string> Logs { get; }
     public IReadOnlyList<BindingKind> BindingKinds { get; }
+    public IReadOnlyList<ApplicationCapability> Capabilities => ApplicationCapabilities.Beta.Items;
+    public string BetaVersion
+    {
+        get
+        {
+            var assembly=Assembly.GetEntryAssembly()??Assembly.GetExecutingAssembly();var info=assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??assembly.GetName().Version?.ToString()??"unknown";
+            var commit=info.Split('+').LastOrDefault();return $"Beta {assembly.GetName().Version}"+(commit is {Length:>=7}?$" ({commit[..7]})":"");
+        }
+    }
 
     public event EventHandler? SelectAreaRequested;
     public event EventHandler? PickCenterRequested;
@@ -246,6 +258,12 @@ public sealed class MainViewModel : ObservableObject
 
     private Task LoadProfileObjectAsync(MapperProfile profile)
     {
+        var capabilityWarnings=_profileValidator.Validate(profile).Warnings.Where(x=>x.Code=="UnsupportedInBeta").ToArray();
+        if(capabilityWarnings.Length>0)
+        {
+            _logger.LogWarning("Profile {Profile} loaded with capability warnings: {Warnings}",profile.Name,string.Join("; ",capabilityWarnings.Select(x=>$"{x.FieldPath}:{x.Code}")));
+            System.Windows.MessageBox.Show("Профиль загружен, но содержит функции, отключённые в beta. Они не будут запущены.","Ограничения Beta",MessageBoxButton.OK,MessageBoxImage.Warning);
+        }
         EnsureCameraBinding(profile);
         CurrentProfile = profile;
         Bindings.Clear();
@@ -589,6 +607,12 @@ public sealed class MainViewModel : ObservableObject
     private void ActivateMapping()
     {
         CurrentProfile.Bindings = Bindings.Select(binding => binding.Model).ToList();
+        var unsupported=CurrentProfile.Bindings.Where(x=>x.IsActive&&x.Kind is BindingKind.Macro or BindingKind.Sequence).Select(x=>x.Name).ToArray();
+        if(CurrentProfile.Gamepad.Enabled||unsupported.Length>0)
+        {
+            _logger.LogWarning("UnsupportedInBeta: activation contains XInput={XInput}, unsupported bindings={Bindings}",CurrentProfile.Gamepad.Enabled,string.Join(",",unsupported));
+            System.Windows.MessageBox.Show("Часть функций профиля отключена в beta-версии (XInput или Macro/Sequence). Они не будут запущены.","Ограничения Beta",MessageBoxButton.OK,MessageBoxImage.Warning);
+        }
         _mappingEngine.SetProfile(CurrentProfile);
         _mappingEngine.Start();
         ToggleOverlayRequested?.Invoke(this, EventArgs.Empty);

@@ -38,6 +38,10 @@
                     <Button Content="Экспорт диагностики" Command="{Binding ExportDiagnosticsCommand}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding BetaVersion}" Foreground="#FBBF24" FontWeight="Bold" Margin="0,0,14,0" />
+                    <Expander Header="Возможности Beta" Foreground="White" Margin="0,0,12,0">
+                        <Border Background="#F01A2230" Padding="8" Width="360"><ItemsControl ItemsSource="{Binding Capabilities}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Foreground="White"><Run Text="{Binding DisplayName}"/><Run Text=" — "/><Run Text="{Binding Status}"/></TextBlock></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
+                    </Expander>
                     <TextBlock Text="{Binding ResolutionText}" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,14,0" />
                     <TextBlock Text="{Binding IsMappingActive, Converter={StaticResource BooleanLabelConverter}}" Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0" />
                     <Button Content="F8 — Запустить" Command="{Binding ActivateCommand}" />

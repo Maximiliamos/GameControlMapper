@@ -1,5 +1,7 @@
 # Manual release validation
 
+Before testing, verify the Beta label and capability matrix in the UI. Do not treat XInput, Macro/Sequence, Android, pinch or rotation as supported. Diagnostic export must contain `Capability matrix` and `xinput: UnsupportedInBeta`.
+
 Application version: __________  Commit hash: __________  Tester/date: __________
 
 Run only in a human-controlled safe environment with no unsaved data. Record relevant journal lines and mark each

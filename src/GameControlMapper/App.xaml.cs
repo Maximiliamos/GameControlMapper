@@ -79,7 +79,6 @@ public partial class App : System.Windows.Application
         services.AddSingleton<DiagnosticExportService>();
         services.AddSingleton<CoordinateScaler>();
         services.AddSingleton<IInputSimulator, SendInputSimulator>();
-        services.AddSingleton<ITouchSimulator, WindowsTouchSimulator>();
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
         services.AddSingleton<MouseHookService>();
@@ -94,7 +93,7 @@ public partial class App : System.Windows.Application
             provider.GetRequiredService<MouseHookService>().MouseMoved += camera.OnMouseMove;
             return camera;
         });
-        services.AddSingleton<XInputGamepadMapper>();
+        services.AddSingleton(Models.ApplicationCapabilities.Beta);
         services.AddSingleton<InputMappingEngine>();
         services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();

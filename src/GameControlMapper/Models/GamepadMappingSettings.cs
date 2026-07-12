@@ -5,7 +5,7 @@ namespace GameControlMapper.Models;
 /// </summary>
 public sealed class GamepadMappingSettings
 {
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
     public double LeftStickDeadZone { get; set; } = 0.28;
     public double RightStickDeadZone { get; set; } = 0.22;
     public double MouseSensitivityX { get; set; } = 18;

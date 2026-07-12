@@ -16,7 +16,7 @@ public sealed class MapperProfileValidator : IMapperProfileValidator
     public MapperProfileValidator(HotkeyParser hotkeys)=>_hotkeys=hotkeys;
     public ProfileValidationResult Validate(MapperProfile? p)
     {
-        var e=new List<ProfileValidationIssue>();void Add(string c,string path,string m)=>e.Add(new(c,path,m));
+        var e=new List<ProfileValidationIssue>();var w=new List<ProfileValidationIssue>();void Add(string c,string path,string m)=>e.Add(new(c,path,m));
         if(p is null){Add("profile.null","$","Profile is null.");return new(e,[]);}
         if(string.IsNullOrWhiteSpace(p.Name))Add("profile.name.required","name","Profile name is required.");
         if(p.ResolutionWidth<=0)Add("profile.resolution.width","resolutionWidth","Width must be positive.");
@@ -30,6 +30,7 @@ public sealed class MapperProfileValidator : IMapperProfileValidator
             if(b.Id==Guid.Empty)Add("binding.id.empty",$"{path}.id","Binding ID must not be empty.");else if(!ids.Add(b.Id))Add("binding.id.duplicate",$"{path}.id","Binding ID must be unique.");
             if(string.IsNullOrWhiteSpace(b.Name))Add("binding.name.required",$"{path}.name","Binding name is required.");
             if(!Enum.IsDefined(b.Kind))Add("binding.kind.unsupported",$"{path}.kind","Binding kind is unsupported.");
+            if(b.Kind is BindingKind.Macro or BindingKind.Sequence)w.Add(new("UnsupportedInBeta",$"{path}.kind",$"{b.Kind} отключён в beta-версии."));
             if(!Finite(b.X)||!Finite(b.Y)||!Finite(b.Width)||!Finite(b.Height)){Add("binding.geometry.nonfinite",$"{path}.geometry","Geometry must be finite.");continue;}
             if(b.Width<=0||b.Height<=0)Add("binding.area.nonpositive",$"{path}.width","Binding area must be positive.");
             if(b.CenterX<0||b.CenterY<0||b.CenterX>=p.ResolutionWidth||b.CenterY>=p.ResolutionHeight)Add("binding.point.outside",$"{path}.center","Binding center is outside half-open profile bounds.");
@@ -39,7 +40,9 @@ public sealed class MapperProfileValidator : IMapperProfileValidator
             if(!Finite(b.Opacity)||b.Opacity<0||b.Opacity>1)Add("binding.opacity.invalid",$"{path}.opacity","Opacity must be between 0 and 1.");
             if(b.Actions is null)Add("binding.actions.null",$"{path}.actions","Actions must not be null.");else for(var j=0;j<b.Actions.Count;j++){var a=b.Actions[j];if(!Enum.IsDefined(a.Kind))Add("action.kind.unsupported",$"{path}.actions[{j}].kind","Action kind is unsupported.");if(a.DelayMilliseconds<0||a.DelayMilliseconds>MaxDurationMilliseconds)Add("action.delay.invalid",$"{path}.actions[{j}].delayMilliseconds","Action delay is invalid.");if(!Finite(a.X)||!Finite(a.Y))Add("action.coordinates.nonfinite",$"{path}.actions[{j}]","Action coordinates must be finite.");}
         }
-        return new(e,[]);
+        if(p.Gamepad?.Enabled==true)w.Add(new("UnsupportedInBeta","gamepad.enabled","XInput отключён в beta-версии."));
+        if(p.InputMode is InputMode.RawInput or InputMode.Interception or InputMode.ViGEm)w.Add(new("UnsupportedInBeta","inputMode",$"Режим {p.InputMode} отключён в beta-версии."));
+        return new(e,w);
     }
     private bool ValidHotkey(string value)=>value.Equals("WASD",StringComparison.OrdinalIgnoreCase)||value.Split('+',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries) is {Length:>0} parts&&parts.All(p=>_hotkeys.ToVirtualKey(p)!=0);
     private static bool Finite(double value)=>double.IsFinite(value);

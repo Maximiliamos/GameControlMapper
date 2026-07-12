@@ -10,9 +10,7 @@ public sealed class InputMappingEngine : IDisposable
     private readonly KeyboardHookService _keyboardHook;
     private readonly MouseHookService _mouseHook;
     private readonly CameraMouseLookService _cameraMouseLook;
-    private readonly XInputGamepadMapper _gamepadMapper;
     private readonly IInputSimulator _inputSimulator;
-    private readonly ITouchSimulator _touchSimulator;
     private readonly TouchEngine _touchEngine;
     private readonly TouchScheduler _touchScheduler;
     private readonly HotkeyParser _hotkeyParser;
@@ -40,9 +38,7 @@ public sealed class InputMappingEngine : IDisposable
         KeyboardHookService keyboardHook,
         MouseHookService mouseHook,
         CameraMouseLookService cameraMouseLook,
-        XInputGamepadMapper gamepadMapper,
         IInputSimulator inputSimulator,
-        ITouchSimulator touchSimulator,
         TouchEngine touchEngine,
         TouchScheduler touchScheduler,
         HotkeyParser hotkeyParser,
@@ -54,9 +50,7 @@ public sealed class InputMappingEngine : IDisposable
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
         _cameraMouseLook = cameraMouseLook;
-        _gamepadMapper = gamepadMapper;
         _inputSimulator = inputSimulator;
-        _touchSimulator = touchSimulator;
         _touchEngine = touchEngine;
         _touchScheduler = touchScheduler;
         _hotkeyParser = hotkeyParser;
@@ -81,6 +75,10 @@ public sealed class InputMappingEngine : IDisposable
         _mouseHook.Start();
     }
 
+    // Compatibility constructor for existing tests only; production DI cannot resolve its legacy parameters.
+    public InputMappingEngine(KeyboardHookService keyboardHook,MouseHookService mouseHook,CameraMouseLookService cameraMouseLook,XInputGamepadMapper gamepadMapper,IInputSimulator inputSimulator,ITouchSimulator touchSimulator,TouchEngine touchEngine,TouchScheduler touchScheduler,HotkeyParser hotkeyParser,TargetWindowSessionManager targetSession,WindowCoordinateTransformer transformer,ILogger<InputMappingEngine> logger,ITargetWindowActivationMonitor? activationMonitor=null,ITouchContactAllocator? allocator=null,MappingSessionDiagnostics? diagnostics=null)
+        :this(keyboardHook,mouseHook,cameraMouseLook,inputSimulator,touchEngine,touchScheduler,hotkeyParser,targetSession,transformer,logger,activationMonitor,allocator,diagnostics){}
+
     public bool IsActive { get; private set; }
 
     public event EventHandler<bool>? ActiveChanged;
@@ -99,7 +97,6 @@ public sealed class InputMappingEngine : IDisposable
             _profile = profile;
             // Always use TouchInjection mode for now
             Models.InputModeGuard.TouchInjectionMode = true;
-            _gamepadMapper.SetProfile(profile);
             foreach (var binding in profile.Bindings)
             {
                 if (!_actionLocks.ContainsKey(binding.Id)) _actionLocks[binding.Id] = new SemaphoreSlim(1, 1);
@@ -141,9 +138,7 @@ public sealed class InputMappingEngine : IDisposable
                 _gestureCancellation = new CancellationTokenSource();
             }
             if (_profile?.Gamepad.Enabled == true)
-            {
-                _gamepadMapper.Start();
-            }
+                _logger.LogWarning("UnsupportedInBeta: XInput polling was not started.");
         }
 
         ActiveChanged?.Invoke(this, true);
@@ -167,7 +162,6 @@ public sealed class InputMappingEngine : IDisposable
             _touchEngine.StopAcceptingContacts();
             _gestureCancellation.Cancel();
             _cameraMouseLook.Stop();
-            _gamepadMapper.Stop();
             ReleaseAllJoysticks();
 
             // Release all active mouse areas
@@ -583,8 +577,7 @@ public sealed class InputMappingEngine : IDisposable
                     }
                 case BindingKind.Macro:
                 case BindingKind.Sequence:
-                    // Macros/Sequences still use native input even in touch mode?
-                    await _inputSimulator.ExecuteBindingAsync(binding, cancellationToken).ConfigureAwait(false);
+                    _logger.LogWarning("UnsupportedInBeta: binding {BindingId} ({BindingKind}) was rejected without creating touch contacts.",binding.Id,binding.Kind);
                     break;
             }
         }
@@ -687,7 +680,7 @@ public sealed class InputMappingEngine : IDisposable
 
             _disposed = true;
             IsActive = false;
-            _touchSimulator.ReleaseAll();
+            _touchEngine.ReleaseAll();
             _pressedKeys.Clear();
         }
 

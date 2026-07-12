@@ -38,7 +38,7 @@ Per-monitor DPI awareness is declared by `ApplicationDPIAware=true/PM` and `Appl
 
 ## Tanks Blitz Gamepad Flow
 
-`XInputGamepadMapper` follows the AntiMicroX approach: it polls an XInput gamepad and maps state changes to native keyboard and mouse events instead of coordinate clicks.
+`XInputGamepadMapper` сохранён как совместимый legacy-код, но не зарегистрирован production DI и не запускается в beta.
 
 - Left stick: `W`, `A`, `S`, `D`
 - Right stick: relative mouse look
@@ -88,6 +88,8 @@ All production contacts acquire a `TouchContactLease` from the singleton `ITouch
 uses `TouchCapabilities.MaxContacts`, never evicts an active lease, and records contact ID, target-session
 generation, owner identity, state, and a monotonic diagnostic sequence. Camera, every joystick binding, every
 MouseArea, and each Tap/Hold/DoubleTap/Swipe execution use this same path; `FixedContacts` is legacy-only.
+
+`ApplicationCapabilities.Beta` является единым источником статусов возможностей для UI, runtime-ограничений и диагностического экспорта. Production touch path использует `TouchEngine`, allocator lease, `TouchScheduler` и `WindowsTouchBackend`; `WindowsTouchSimulator`, `FixedContacts` и старый числовой API не регистрируются в DI. Debug overlay получает owner ID и состояние из активных allocator leases и не выводит роль по contact ID.
 
 A lease remains stable until its Up outcome is known. `EndTouch` changes it to `ReleasePending`. The scheduler
 returns the ID only after the backend accepts the Up frame. A failed Up is removed from frame retry and moved to

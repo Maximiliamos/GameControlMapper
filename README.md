@@ -31,15 +31,24 @@ Windows WPF приложение для создания профилей упр
    - Аналогично левой кнопке, но контакт ID 4, зона по умолчанию 1645, 790 (1920×1080).
 
 5. **Дополнительные возможности**  
-   - Поддержка различных типов привязок: Tap (клик), DoubleTap (двойной клик), Hold (удержание), Swipe (свайп), Macro (макрос), Sequence (последовательность).  
+   - Поддержка привязок Tap, DoubleTap, Hold, Swipe, WASD joystick, camera mouse-look и MouseArea. Macro/Sequence сохранены в формате профиля, но отключены в beta.
    - Масштабирование координат из разрешения профиля на текущее разрешение экрана.  
-   - Управление геймпадом (XInput).  
+   - XInput не поддерживается в beta и не запускает polling.
    - Оверлей для визуализации привязок поверх игры.  
    - Профили хранятся в JSON.
 
 ## Что уже сделано (по заданию):
 
-✅ Инициализация Touch Injection – WindowsTouchSimulator корректно инициализирует инжекцию, обрабатывает ошибки.  
+✅ Инициализация Touch Injection выполняется единственным production-backend `WindowsTouchBackend`.
+
+## Матрица возможностей Beta
+
+| Функция | Статус | Ограничения | Ручная проверка |
+|---|---|---|---|
+| Windows Touch Injection, клавиатура/мышь, target-window coordinates, multitouch | Поддерживается | Windows 10/11 x64, лимит backend | Да |
+| Camera mouse-look, WASD joystick, MouseArea, диагностика, backup профилей | Поддерживается | Проверяется на целевой игре | Да |
+| XInput, Macro/Sequence, RawInput, Interception, ViGEm | Не поддерживается в Beta | Действие отклоняется без контакта/polling | Нет |
+| ADB/Android, pinch, rotation | Не поддерживается в Beta | Не реализовано | Нет |
 ✅ Корректные флаги в CreateTouchInfo – DOWN/UPDATE/UP с нужными INRANGE/INCONTACT.  
 ✅ CameraMouseLookService полностью реализован, использует System.Windows.Forms, прячет курсор, фиксирует в центре.  
 ✅ Обработчики кликов мыши (Fire/Aim) в InputMappingEngine (как MouseArea).  
