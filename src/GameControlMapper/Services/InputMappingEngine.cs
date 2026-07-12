@@ -1,6 +1,7 @@
 using GameControlMapper.Models;
 using Microsoft.Extensions.Logging;
 using System.Windows.Input;
+using GameControlMapper.Win32;
 
 namespace GameControlMapper.Services;
 
@@ -18,6 +19,7 @@ public sealed class InputMappingEngine : IDisposable
     private readonly TargetWindowSessionManager _targetSession;
     private readonly WindowCoordinateTransformer _windowCoordinateTransformer;
     private readonly ILogger<InputMappingEngine> _logger;
+    private readonly ITargetWindowActivationMonitor? _activationMonitor;
     private readonly object _gate = new();
     private readonly HashSet<int> _pressedKeys = [];
     private readonly Dictionary<Guid, JoystickRuntimeState> _joysticks = [];
@@ -29,6 +31,7 @@ public sealed class InputMappingEngine : IDisposable
     private bool _disposed;
     private MapperProfile? _profile;
     private int _coordinateWarningLogged;
+    private InputPermissionSnapshot _inputPermission = InputPermissionSnapshot.Denied;
 
     public InputMappingEngine(
         KeyboardHookService keyboardHook,
@@ -42,7 +45,8 @@ public sealed class InputMappingEngine : IDisposable
         HotkeyParser hotkeyParser,
         TargetWindowSessionManager targetSession,
         WindowCoordinateTransformer windowCoordinateTransformer,
-        ILogger<InputMappingEngine> logger)
+        ILogger<InputMappingEngine> logger,
+        ITargetWindowActivationMonitor? activationMonitor = null)
     {
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
@@ -56,13 +60,17 @@ public sealed class InputMappingEngine : IDisposable
         _targetSession = targetSession;
         _windowCoordinateTransformer = windowCoordinateTransformer;
         _logger = logger;
+        _activationMonitor = activationMonitor;
 
-        _keyboardHook.KeyDown += OnKeyDown;
-        _keyboardHook.KeyUp += OnKeyUp;
-        _mouseHook.ButtonDown += OnMouseButtonDown;
-        _mouseHook.ButtonUp += OnMouseButtonUp;
+        _keyboardHook.GeneratedKeyDown += OnGeneratedKeyDown;
+        _keyboardHook.GeneratedKeyUp += OnGeneratedKeyUp;
+        _mouseHook.GeneratedButtonDown += OnGeneratedMouseButtonDown;
+        _mouseHook.GeneratedButtonUp += OnGeneratedMouseButtonUp;
         _keyboardHook.ShouldSuppressKey = ShouldSuppressKey;
         _mouseHook.ShouldSuppressButton = ShouldSuppressButton;
+        _keyboardHook.CaptureGeneration = CaptureGeneration;
+        _mouseHook.CaptureGeneration = CaptureGeneration;
+        if (_activationMonitor is not null) _activationMonitor.ActivationChanged += OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated += OnTargetSessionInvalidated;
         _keyboardHook.Start();
         _mouseHook.Start();
@@ -124,6 +132,7 @@ public sealed class InputMappingEngine : IDisposable
             _stopTask = null;
             Interlocked.Exchange(ref _coordinateWarningLogged, 0);
             IsActive = true;
+            PublishInputPermission(targetStart.Session!.Generation);
             _touchEngine.StartAcceptingContacts();
             _touchScheduler.Resume();
             if (_gestureCancellation.IsCancellationRequested)
@@ -145,6 +154,7 @@ public sealed class InputMappingEngine : IDisposable
 
     public Task<TouchShutdownResult> StopAsync()
     {
+        Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
         lock (_gate)
         {
             if (_stopTask is not null) return _stopTask;
@@ -195,6 +205,53 @@ public sealed class InputMappingEngine : IDisposable
     {
         _ = StopAsync();
     }
+
+    private long CaptureGeneration() => Volatile.Read(ref _inputPermission).Generation;
+
+    private void OnActivationChanged(object? sender, EventArgs e)
+    {
+        if (!IsActive || _targetSession.IsForegroundActive()) return;
+        Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
+        _ = StopAsync();
+    }
+
+    private void PublishInputPermission(long generation)
+    {
+        var keys = new HashSet<int>();
+        var buttons = new HashSet<int>();
+        if (_profile is not null)
+        {
+            foreach (var binding in _profile.Bindings.Where(b => b.IsActive && !b.UseNativeInput))
+            {
+                var token = binding.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+                var vk = token is null ? 0 : _hotkeyParser.ToVirtualKey(token);
+                if (vk is NativeMethods.VK_LBUTTON or NativeMethods.VK_RBUTTON or NativeMethods.VK_MBUTTON) buttons.Add(vk); else if (vk != 0) keys.Add(vk);
+            }
+            if (_profile.Bindings.Any(IsWasdJoystick))
+                foreach (var key in new[] { Key.W, Key.A, Key.S, Key.D }) keys.Add(KeyInterop.VirtualKeyFromKey(key));
+            var camera = _hotkeyParser.ToVirtualKey(_profile.Camera.ActivationHotkey); if (camera != 0) keys.Add(camera);
+        }
+        Volatile.Write(ref _inputPermission, new InputPermissionSnapshot(true, true, generation, keys, buttons));
+    }
+
+    private bool IsCurrentGeneration(long generation)
+    {
+        var snapshot = Volatile.Read(ref _inputPermission);
+        return snapshot.AllowMappedInput && snapshot.Generation == generation;
+    }
+
+    private bool IsLifecycleHotkey(int virtualKey) => _profile is not null &&
+        new[] { _profile.EnableHotkey, _profile.DisableHotkey, _profile.ToggleOverlayHotkey, _profile.EditorHotkey }
+            .Any(h => _hotkeyParser.ToVirtualKey(h) == virtualKey);
+
+    private void OnGeneratedKeyDown(object? sender, GeneratedInputEvent input)
+    { if (IsCurrentGeneration(input.Generation) || IsLifecycleHotkey(input.VirtualKey)) OnKeyDown(sender, input.VirtualKey); }
+    private void OnGeneratedKeyUp(object? sender, GeneratedInputEvent input)
+    { if (IsCurrentGeneration(input.Generation)) OnKeyUp(sender, input.VirtualKey); }
+    private void OnGeneratedMouseButtonDown(object? sender, GeneratedInputEvent input)
+    { if (IsCurrentGeneration(input.Generation)) OnMouseButtonDown(sender, input.VirtualKey); }
+    private void OnGeneratedMouseButtonUp(object? sender, GeneratedInputEvent input)
+    { if (IsCurrentGeneration(input.Generation)) OnMouseButtonUp(sender, input.VirtualKey); }
 
     private void OnKeyDown(object? sender, int virtualKey)
     {
@@ -614,54 +671,14 @@ public sealed class InputMappingEngine : IDisposable
 
     private bool ShouldSuppressKey(int virtualKey)
     {
-        lock (_gate)
-        {
-            if (_disposed || !IsActive || _profile is null)
-            {
-                return false;
-            }
-
-            var pressed = new HashSet<int>(_pressedKeys) { virtualKey };
-            if (_hotkeyParser.Matches(_profile.EnableHotkey, virtualKey, pressed) ||
-                _hotkeyParser.Matches(_profile.DisableHotkey, virtualKey, pressed) ||
-                _hotkeyParser.Matches(_profile.ToggleOverlayHotkey, virtualKey, pressed) ||
-                _hotkeyParser.Matches(_profile.EditorHotkey, virtualKey, pressed))
-            {
-                return false;
-            }
-
-            if (IsWasdKey(virtualKey) && _profile.Bindings.Any(IsWasdJoystick))
-            {
-                return true;
-            }
-
-            if (_hotkeyParser.Matches(_profile.Camera.ActivationHotkey, virtualKey, pressed))
-            {
-                return true;
-            }
-
-            return _profile.Bindings.Any(binding =>
-                binding.IsActive &&
-                !binding.UseNativeInput &&
-                _hotkeyParser.Matches(binding.Hotkey, virtualKey, pressed));
-        }
+        var snapshot = Volatile.Read(ref _inputPermission);
+        return snapshot.AllowSuppression && snapshot.SuppressedKeys.Contains(virtualKey);
     }
 
     private bool ShouldSuppressButton(int virtualKey)
     {
-        lock (_gate)
-        {
-            if (_disposed || !IsActive || _profile is null)
-            {
-                return false;
-            }
-
-            var pressed = new HashSet<int>(_pressedKeys) { virtualKey };
-            return _profile.Bindings.Any(binding =>
-                binding.IsActive &&
-                !binding.UseNativeInput &&
-                _hotkeyParser.Matches(binding.Hotkey, virtualKey, pressed));
-        }
+        var snapshot = Volatile.Read(ref _inputPermission);
+        return snapshot.AllowSuppression && snapshot.SuppressedButtons.Contains(virtualKey);
     }
 
     private static int GetJoystickContactId(ControlBinding binding)
@@ -735,12 +752,15 @@ public sealed class InputMappingEngine : IDisposable
             _pressedKeys.Clear();
         }
 
-        _keyboardHook.KeyDown -= OnKeyDown;
-        _keyboardHook.KeyUp -= OnKeyUp;
-        _mouseHook.ButtonDown -= OnMouseButtonDown;
-        _mouseHook.ButtonUp -= OnMouseButtonUp;
+        _keyboardHook.GeneratedKeyDown -= OnGeneratedKeyDown;
+        _keyboardHook.GeneratedKeyUp -= OnGeneratedKeyUp;
+        _mouseHook.GeneratedButtonDown -= OnGeneratedMouseButtonDown;
+        _mouseHook.GeneratedButtonUp -= OnGeneratedMouseButtonUp;
         _keyboardHook.ShouldSuppressKey = null;
         _mouseHook.ShouldSuppressButton = null;
+        _keyboardHook.CaptureGeneration = null;
+        _mouseHook.CaptureGeneration = null;
+        if (_activationMonitor is not null) _activationMonitor.ActivationChanged -= OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated -= OnTargetSessionInvalidated;
         _keyboardHook.Stop();
         _mouseHook.Stop();

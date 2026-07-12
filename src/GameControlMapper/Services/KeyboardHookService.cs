@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using GameControlMapper.Win32;
+using GameControlMapper.Models;
 using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
@@ -20,7 +21,10 @@ public sealed class KeyboardHookService : IDisposable
 
     public event EventHandler<int>? KeyDown;
     public event EventHandler<int>? KeyUp;
+    public event EventHandler<GeneratedInputEvent>? GeneratedKeyDown;
+    public event EventHandler<GeneratedInputEvent>? GeneratedKeyUp;
     public Func<int, bool>? ShouldSuppressKey { get; set; }
+    public Func<long>? CaptureGeneration { get; set; }
 
     public void Start()
     {
@@ -56,7 +60,10 @@ public sealed class KeyboardHookService : IDisposable
         _hook = IntPtr.Zero;
         KeyDown = null;
         KeyUp = null;
+        GeneratedKeyDown = null;
+        GeneratedKeyUp = null;
         ShouldSuppressKey = null;
+        CaptureGeneration = null;
     }
 
     public void Dispose()
@@ -72,7 +79,7 @@ public sealed class KeyboardHookService : IDisposable
             var message = wParam.ToInt32();
             if (message is NativeMethods.WM_KEYDOWN or NativeMethods.WM_SYSKEYDOWN)
             {
-                QueueKeyEvent(KeyDown, data.vkCode);
+                QueueKeyEvent(KeyDown, GeneratedKeyDown, data.vkCode, CaptureGeneration?.Invoke() ?? 0);
                 if (ShouldSuppressKey?.Invoke(data.vkCode) == true)
                 {
                     return new IntPtr(1);
@@ -80,7 +87,7 @@ public sealed class KeyboardHookService : IDisposable
             }
             else if (message is NativeMethods.WM_KEYUP or NativeMethods.WM_SYSKEYUP)
             {
-                QueueKeyEvent(KeyUp, data.vkCode);
+                QueueKeyEvent(KeyUp, GeneratedKeyUp, data.vkCode, CaptureGeneration?.Invoke() ?? 0);
                 if (ShouldSuppressKey?.Invoke(data.vkCode) == true)
                 {
                     return new IntPtr(1);
@@ -91,9 +98,9 @@ public sealed class KeyboardHookService : IDisposable
         return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
     }
 
-    private void QueueKeyEvent(EventHandler<int>? handler, int virtualKey)
+    private void QueueKeyEvent(EventHandler<int>? handler, EventHandler<GeneratedInputEvent>? generated, int virtualKey, long generation)
     {
-        if (handler is null)
+        if (handler is null && generated is null)
         {
             return;
         }
@@ -102,7 +109,8 @@ public sealed class KeyboardHookService : IDisposable
         {
             if (!_disposed)
             {
-                handler.Invoke(this, virtualKey);
+                generated?.Invoke(this, new GeneratedInputEvent(virtualKey, generation));
+                handler?.Invoke(this, virtualKey);
             }
         });
     }

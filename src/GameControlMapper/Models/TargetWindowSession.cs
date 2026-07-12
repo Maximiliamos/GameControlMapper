@@ -5,6 +5,7 @@ public sealed record TargetWindowSession(
     ProfileSize ProfileSize,
     CoordinateScaleMode ScaleMode,
     PhysicalClientRect ClientRect,
+    uint ProcessId,
     long Generation,
     bool IsActive);
 

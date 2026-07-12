@@ -39,6 +39,9 @@ public static class NativeMethods
     public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int LLMHF_INJECTED = 0x00000001;
+    public const uint GA_ROOT = 2;
+    public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    public const uint WINEVENT_OUTOFCONTEXT = 0;
     public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
     public const uint TOUCH_FEEDBACK_NONE = 0x00000003;
     public const uint PT_TOUCH = 0x00000002;
@@ -54,6 +57,7 @@ public static class NativeMethods
     public const uint TOUCH_MASK_PRESSURE = 0x00000004;
 
     public delegate IntPtr LowLevelProc(int nCode, IntPtr wParam, IntPtr lParam);
+    public delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint eventThread, uint eventTime);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT
@@ -220,6 +224,18 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module, WinEventProc callback, uint processId, uint threadId, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(IntPtr hook);
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);

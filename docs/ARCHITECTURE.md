@@ -48,3 +48,19 @@ Per-monitor DPI awareness is declared by `ApplicationDPIAware=true/PM` and `Appl
 - D-pad left/up/right: shells `1`/`2`/`3`
 
 This path does not move the cursor to overlay zones.
+
+## Foreground focus safety
+
+Mapping is fail-closed and is permitted only while the canonical `GA_ROOT` target HWND is the foreground root,
+the saved process ID still matches that HWND, the window is valid and not minimized, and mapping is running.
+A Win32 foreground-event hook queues a notification without logging, waiting, locking, or running asynchronous
+shutdown inside the native callback. The managed handler atomically publishes a denied immutable
+`InputPermissionSnapshot` before joining the existing idempotent graceful `StopAsync` path. Focus return never
+restarts mapping.
+
+Low-level suppression callbacks perform one lock-free snapshot read and a key/button lookup. They do not query
+window geometry or foreground state, use the WPF dispatcher, wait for touch sending, or call `StopAsync`. Queued
+hook events carry the target generation captured by the callback and the managed handler validates it again. This
+prevents input queued before focus loss from creating contacts in an ended or later session. Lifecycle hotkeys are
+not suppressed: F8 performs full target validation, F9 joins the current stop, and F10/F11 preserve their existing
+non-touch behavior while ordinary input outside the target remains untouched.

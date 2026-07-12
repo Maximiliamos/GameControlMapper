@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using GameControlMapper.Win32;
+using GameControlMapper.Models;
 using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
@@ -17,6 +18,9 @@ public sealed class MouseHookService : IDisposable
     private int _queuedDx;
     private int _queuedDy;
     private int _moveDispatchScheduled;
+    private int _queuedRawDx;
+    private int _queuedRawDy;
+    private int _rawMoveDispatchScheduled;
     private bool _disposed;
 
     public MouseHookService(ILogger<MouseHookService> logger)
@@ -29,7 +33,10 @@ public sealed class MouseHookService : IDisposable
     public event EventHandler<(int Dx, int Dy)>? Moved;
     public event EventHandler<int>? ButtonDown;
     public event EventHandler<int>? ButtonUp;
+    public event EventHandler<GeneratedInputEvent>? GeneratedButtonDown;
+    public event EventHandler<GeneratedInputEvent>? GeneratedButtonUp;
     public Func<int, bool>? ShouldSuppressButton { get; set; }
+    public Func<long>? CaptureGeneration { get; set; }
     public bool CaptureMovement
     {
         get => _captureMovement;
@@ -82,7 +89,10 @@ public sealed class MouseHookService : IDisposable
         Moved = null;
         ButtonDown = null;
         ButtonUp = null;
+        GeneratedButtonDown = null;
+        GeneratedButtonUp = null;
         ShouldSuppressButton = null;
+        CaptureGeneration = null;
     }
 
     public void Dispose()
@@ -110,7 +120,7 @@ public sealed class MouseHookService : IDisposable
                     int dy = data.pt.Y - _lastRawPoint.Y;
                     if (dx != 0 || dy != 0)
                     {
-                        MouseMoved?.Invoke(dx, dy);
+                        QueueRawMoveEvent(dx, dy);
                     }
                 }
                 _lastRawPoint = data.pt;
@@ -139,11 +149,11 @@ public sealed class MouseHookService : IDisposable
             {
                 if (isDown)
                 {
-                    QueueButtonEvent(ButtonDown, virtualKey);
+                    QueueButtonEvent(ButtonDown, GeneratedButtonDown, virtualKey, CaptureGeneration?.Invoke() ?? 0);
                 }
                 else
                 {
-                    QueueButtonEvent(ButtonUp, virtualKey);
+                    QueueButtonEvent(ButtonUp, GeneratedButtonUp, virtualKey, CaptureGeneration?.Invoke() ?? 0);
                 }
 
                 if (ShouldSuppressButton?.Invoke(virtualKey) == true)
@@ -202,9 +212,27 @@ public sealed class MouseHookService : IDisposable
         });
     }
 
-    private void QueueButtonEvent(EventHandler<int>? handler, int virtualKey)
+    private void QueueRawMoveEvent(int dx, int dy)
     {
-        if (handler is null)
+        if (MouseMoved is null) return;
+        Interlocked.Add(ref _queuedRawDx, dx);
+        Interlocked.Add(ref _queuedRawDy, dy);
+        if (Interlocked.Exchange(ref _rawMoveDispatchScheduled, 1) == 1) return;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                var totalDx = Interlocked.Exchange(ref _queuedRawDx, 0);
+                var totalDy = Interlocked.Exchange(ref _queuedRawDy, 0);
+                if (!_disposed && (totalDx != 0 || totalDy != 0)) MouseMoved?.Invoke(totalDx, totalDy);
+            }
+            finally { Interlocked.Exchange(ref _rawMoveDispatchScheduled, 0); }
+        });
+    }
+
+    private void QueueButtonEvent(EventHandler<int>? handler, EventHandler<GeneratedInputEvent>? generated, int virtualKey, long generation)
+    {
+        if (handler is null && generated is null)
         {
             return;
         }
@@ -213,7 +241,8 @@ public sealed class MouseHookService : IDisposable
         {
             if (!_disposed)
             {
-                handler.Invoke(this, virtualKey);
+                generated?.Invoke(this, new GeneratedInputEvent(virtualKey, generation));
+                handler?.Invoke(this, virtualKey);
             }
         });
     }

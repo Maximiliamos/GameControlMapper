@@ -20,6 +20,8 @@ public interface IGameWindowNativeAdapter
     bool GetClientRect(nint windowHandle, out NativeClientRect rect);
     bool ClientToScreen(nint windowHandle, ref PhysicalScreenPoint point);
     int GetLastError();
+    nint GetAncestor(nint windowHandle, uint flags) => windowHandle;
+    uint GetWindowProcessId(nint windowHandle) => 1;
 }
 
 /// <summary>
@@ -91,4 +93,10 @@ public sealed class WindowsGameWindowNativeAdapter : IGameWindowNativeAdapter
     }
 
     public int GetLastError() => System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+    public nint GetAncestor(nint windowHandle, uint flags) => NativeMethods.GetAncestor(windowHandle, flags);
+    public uint GetWindowProcessId(nint windowHandle)
+    {
+        NativeMethods.GetWindowThreadProcessId(windowHandle, out var processId);
+        return processId;
+    }
 }

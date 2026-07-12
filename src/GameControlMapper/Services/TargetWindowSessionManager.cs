@@ -14,14 +14,19 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
 
     private readonly IGameWindowGeometryProvider _geometryProvider;
     private readonly ILogger<TargetWindowSessionManager> _logger;
+    private readonly IGameWindowNativeAdapter? _native;
+    private readonly ITargetWindowActivationMonitor? _activationMonitor;
     private readonly object _gate = new();
     private TargetWindowSession? _session;
     private long _generation;
 
-    public TargetWindowSessionManager(IGameWindowGeometryProvider geometryProvider, ILogger<TargetWindowSessionManager> logger)
+    public TargetWindowSessionManager(IGameWindowGeometryProvider geometryProvider, ILogger<TargetWindowSessionManager> logger,
+        IGameWindowNativeAdapter? native = null, ITargetWindowActivationMonitor? activationMonitor = null)
     {
         _geometryProvider = geometryProvider;
         _logger = logger;
+        _native = native;
+        _activationMonitor = activationMonitor;
     }
 
     public TargetWindowSession? Current
@@ -36,21 +41,39 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
         if (!double.IsFinite(profileSize.Width) || !double.IsFinite(profileSize.Height) || profileSize.Width <= 0 || profileSize.Height <= 0)
             return new(false, null, "Profile dimensions must be finite and greater than zero.");
 
-        var geometry = _geometryProvider.GetClientRect(windowHandle);
+        var root = _native?.GetAncestor(windowHandle, GameControlMapper.Win32.NativeMethods.GA_ROOT) ?? windowHandle;
+        if (root == 0) return new(false, null, "Unable to normalize the target window.");
+        var processId = _native?.GetWindowProcessId(root) ?? 1;
+        if (processId == 0) return new(false, null, "Unable to identify the target process.");
+        if (_activationMonitor is not null &&
+            (!_activationMonitor.TryGetForeground(out var foregroundRoot, out var foregroundPid) || foregroundRoot != root || foregroundPid != processId))
+            return new(false, null, "The selected target window is not the foreground window.");
+
+        var geometry = _geometryProvider.GetClientRect(root);
         if (!geometry.Succeeded)
             return new(false, null, geometry.Error);
 
         lock (_gate)
         {
             _session = new TargetWindowSession(
-                windowHandle,
+                root,
                 profileSize,
                 ProductionScaleMode,
                 geometry.ClientRect,
+                processId,
                 ++_generation,
                 true);
             return new(true, _session, null);
         }
+    }
+
+    public bool IsForegroundActive()
+    {
+        TargetWindowSession? snapshot;
+        lock (_gate) snapshot = _session;
+        if (snapshot is null || !snapshot.IsActive || _activationMonitor is null) return _activationMonitor is null && snapshot?.IsActive == true;
+        return _activationMonitor.TryGetForeground(out var root, out var pid) &&
+               root == snapshot.WindowHandle && pid == snapshot.ProcessId;
     }
 
     public bool ValidateActiveSession()
@@ -59,8 +82,9 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
         lock (_gate) snapshot = _session;
         if (snapshot is null || !snapshot.IsActive) return true;
 
+        var processMatches = _native is null || _native.GetWindowProcessId(snapshot.WindowHandle) == snapshot.ProcessId;
         var geometry = _geometryProvider.GetClientRect(snapshot.WindowHandle);
-        if (geometry.Succeeded && geometry.ClientRect == snapshot.ClientRect) return true;
+        if (processMatches && geometry.Succeeded && geometry.ClientRect == snapshot.ClientRect) return true;
 
         lock (_gate)
         {
@@ -68,7 +92,7 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
                 _session = snapshot with { IsActive = false };
         }
         _logger.LogWarning("Target window session {Generation} became invalid: {Reason}", snapshot.Generation,
-            geometry.Succeeded ? "client geometry changed" : geometry.Error);
+            !processMatches ? "target HWND process identity changed" : geometry.Succeeded ? "client geometry changed" : geometry.Error);
         return false;
     }
 
