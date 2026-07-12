@@ -2,6 +2,8 @@
 
 Beta supports Windows Touch Injection, keyboard/mouse mapping, target-window coordinates, multitouch, camera, MouseArea, diagnostics and profile backup. XInput, Macro/Sequence, RawInput, Interception, ViGEm, ADB/Android, pinch and rotation are UnsupportedInBeta.
 
+The `1.0.0-rc.1` archives are validation candidates, not a completed 1.0 release. Run the guided mode in TouchTestHarness and validate its JSON report before finalization.
+
 This package targets 64-bit Windows 10/11 and is self-contained; installing a separate .NET runtime is not
 required. Extract the complete ZIP before launch. Run `GameControlMapper.exe`; run
 `GameControlMapper.TouchTestHarness.exe` from its separate archive when performing safe touch validation.

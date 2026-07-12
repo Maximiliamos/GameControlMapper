@@ -1,5 +1,7 @@
 # Game Control Mapper
 
+Version 1.0 RC supports Windows 10/11 x64 and the scope documented in [docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md). It has no telemetry or network transfer. See troubleshooting, privacy and known limitations before manual validation.
+
 Windows WPF приложение для создания профилей управления клавиатурой и мышью для оконных и безрамочных игр на Windows. Преобразует ввод с клавиатуры/мыши в симуляцию сенсорных касаний (Touch Injection).
 
 ## Описание задачи и функционала

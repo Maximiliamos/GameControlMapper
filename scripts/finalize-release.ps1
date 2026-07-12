@@ -1,0 +1,13 @@
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$ReportPath,[Parameter(Mandatory)][string]$Version,[Parameter(Mandatory)][string]$Commit,[Parameter(Mandatory)][string]$ApplicationArchive,[Parameter(Mandatory)][string]$HarnessArchive,[Parameter(Mandatory)][string]$OutputDirectory)
+$ErrorActionPreference='Stop';if($Version-ne'1.0.0'){throw 'Final release version must be 1.0.0.'}
+& (Join-Path $PSScriptRoot 'validate-manual-release.ps1') -ReportPath $ReportPath -ApplicationArchive $ApplicationArchive -HarnessArchive $HarnessArchive -ExpectedVersion $Version -ExpectedCommit $Commit
+if($LASTEXITCODE){throw 'Manual validation failed.'}
+$out=[IO.Path]::GetFullPath($OutputDirectory);New-Item -ItemType Directory -Force $out|Out-Null
+$appName="GameControlMapper-$Version-win-x64.zip";$harnessName="GameControlMapper-TouchTestHarness-$Version-win-x64.zip";Copy-Item $ApplicationArchive (Join-Path $out $appName);Copy-Item $HarnessArchive (Join-Path $out $harnessName);Copy-Item $ReportPath (Join-Path $out 'manual-validation-report.json');$txt=[IO.Path]::ChangeExtension($ReportPath,'.txt');if(Test-Path $txt){Copy-Item $txt (Join-Path $out 'manual-validation-report.txt')}
+$ah=(Get-FileHash (Join-Path $out $appName) -Algorithm SHA256).Hash.ToLowerInvariant();$hh=(Get-FileHash (Join-Path $out $harnessName) -Algorithm SHA256).Hash.ToLowerInvariant();$report=Get-Content $ReportPath -Raw|ConvertFrom-Json
+$supported=@('Windows Touch Injection','Keyboard/mouse mapping','Target-window coordinates','Tap','DoubleTap','Hold','Horizontal Swipe','WASD joystick','Camera mouse-look','MouseArea','Focus safety','Profiles and diagnostics');$automated=@($report.scenarios|Where-Object{$_.status-eq'NotAvailable'}|ForEach-Object name);$unsupported=@('XInput','Macro/Sequence','Android/ADB','RawInput','Interception','ViGEm','pinch','rotation','anti-cheat guarantee','auto-update','installer')
+[ordered]@{version=$Version;commitHash=$Commit;buildDateUtc=(Get-Date).ToUniversalTime().ToString('o');automaticTests=352;manualValidationVerdict=$report.verdict;archives=@(@{file=$appName;sha256=$ah},@{file=$harnessName;sha256=$hh});supported=$supported;automatedOnly=$automated;unsupported=$unsupported}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $out 'manifest.json') -Encoding utf8
+@("$ah  $appName","$hh  $harnessName")|Set-Content (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
+Copy-Item (Join-Path (Split-Path $PSScriptRoot) 'CHANGELOG.md') (Join-Path $out 'RELEASE_NOTES.md');Copy-Item (Join-Path (Split-Path $PSScriptRoot) 'docs/SUPPORT_MATRIX.md') (Join-Path $out 'SUPPORT_MATRIX.md')
+Write-Host "Final release created in $out"

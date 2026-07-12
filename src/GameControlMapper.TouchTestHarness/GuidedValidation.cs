@@ -1,0 +1,28 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.IO;
+
+namespace GameControlMapper.TouchTestHarness;
+public enum ValidationStatus { NotStarted,InProgress,Passed,Failed,NotAvailable }
+public enum ValidationVerdict { Passed,Failed,PassedWithUnverifiedEnvironments }
+public sealed record ValidationScenario(int Id,string Name,bool EnvironmentOnly){public ValidationStatus Status{get;set;} public string Comment{get;set;}="";}
+public sealed record MonitorMetadata(int X,int Y,int Width,int Height,double Dpi,bool Primary);
+public sealed class ManualValidationReport
+{
+ public string SchemaVersion{get;set;}="1.0";public string ProductVersion{get;set;}="";public string CommitHash{get;set;}="";public string ApplicationCommitHash{get;set;}="";public string HarnessCommitHash{get;set;}="";public string ApplicationArchiveSha256{get;set;}="";public string HarnessArchiveSha256{get;set;}="";public string WindowsVersion{get;set;}="";public string DotNetVersion{get;set;}="";public List<MonitorMetadata> Monitors{get;set;}=[];public bool HasNegativeOrigin{get;set;} public DateTime BuildDateUtc{get;set;}=DateTime.UtcNow;public List<ValidationScenario> Scenarios{get;set;}=[];public List<string> ProtocolErrors{get;set;}=[];public int DownCount{get;set;}public int MoveCount{get;set;}public int UpCount{get;set;}public int MaximumContacts{get;set;}public int ActiveContactsAtEnd{get;set;}public ValidationVerdict Verdict{get;set;}
+}
+public sealed class GuidedValidationSession
+{
+ public static readonly string[] RequiredNames=["Tap","Hold","DoubleTap","Swipe","F9 во время удержания","Закрытие mapper во время удержания","Повторный Start после Stop","WASD joystick","Camera mouse-look не менее двух минут","Движение камеры до физического края экрана","MouseArea ЛКМ","MouseArea ПКМ","Camera + joystick","Camera + MouseArea","Несколько обычных контактов","Максимум 10 контактов","Одиннадцатое действие","Повторный capacity cycle","Alt+Tab во время WASD","Alt+Tab во время камеры","Alt+Tab во время MouseArea","F9 одновременно с Alt+Tab","Перемещение target","Изменение размера target","Сворачивание target","Закрытие target","Возврат фокуса без restart","Создание профиля","Сохранение профиля","Создание backup","Повреждённый JSON","Восстановление backup","Ошибка записи без потери primary","Импорт профиля","Отклонение профиля","Файловый лог","Mapping session ID","Причина автоматического Stop","Диагностический ZIP","Нет содержимого профилей в ZIP","Нет истории клавиш и персональных данных","Нет log spam","Основной монитор DPI 100%","DPI 125% или выше","Второй монитор","Монитор слева","Mixed DPI"];
+ public GuidedValidationSession(){Scenarios=RequiredNames.Select((n,i)=>new ValidationScenario(i+1,n,i>=43)).ToList();}
+ public List<ValidationScenario> Scenarios{get;} public List<string> ProtocolErrors{get;}=[];
+ public bool SetStatus(int id,ValidationStatus status,string? comment,out string? error){error=null;var s=Scenarios.Single(x=>x.Id==id);if(status==ValidationStatus.NotAvailable&&!s.EnvironmentOnly){error="NOT AVAILABLE допустим только для сценариев окружения.";return false;}if(status==ValidationStatus.Failed&&string.IsNullOrWhiteSpace(comment)){error="Для FAIL требуется комментарий.";return false;}s.Status=status;s.Comment=comment?.Trim()??"";return true;}
+ public ValidationVerdict Evaluate(int activeContacts){if(ProtocolErrors.Count>0||activeContacts>0||Scenarios.Any(x=>x.Status is ValidationStatus.Failed or ValidationStatus.NotStarted or ValidationStatus.InProgress)||Scenarios.Any(x=>x.Status==ValidationStatus.NotAvailable&&!x.EnvironmentOnly))return ValidationVerdict.Failed;return Scenarios.Any(x=>x.Status==ValidationStatus.NotAvailable)?ValidationVerdict.PassedWithUnverifiedEnvironments:ValidationVerdict.Passed;}
+ public ManualValidationReport CreateReport(TouchLifecycleTracker tracker,string version,string commit,string appCommit,string appZip,string harnessZip){return new(){ProductVersion=version,CommitHash=commit,ApplicationCommitHash=appCommit,HarnessCommitHash=commit,ApplicationArchiveSha256=Hash(appZip),HarnessArchiveSha256=Hash(harnessZip),WindowsVersion=Environment.OSVersion.VersionString,DotNetVersion=RuntimeInformation.FrameworkDescription,Monitors=[new(0,0,(int)System.Windows.SystemParameters.PrimaryScreenWidth,(int)System.Windows.SystemParameters.PrimaryScreenHeight,96,true)],HasNegativeOrigin=false,Scenarios=Scenarios,ProtocolErrors=ProtocolErrors.Concat(tracker.Events.Where(x=>x.ProtocolError is not null).Select(x=>x.ProtocolError!)).ToList(),DownCount=tracker.DownCount,MoveCount=tracker.MoveCount,UpCount=tracker.UpCount,MaximumContacts=tracker.MaximumConcurrentContacts,ActiveContactsAtEnd=tracker.ActiveContacts.Count,Verdict=Evaluate(tracker.ActiveContacts.Count)};}
+ public static void Export(ManualValidationReport report,string jsonPath){var options=new JsonSerializerOptions{WriteIndented=true,Converters={new JsonStringEnumConverter()}};File.WriteAllText(jsonPath,JsonSerializer.Serialize(report,options));var txt=Path.ChangeExtension(jsonPath,".txt");var b=new StringBuilder().AppendLine($"Game Control Mapper {report.ProductVersion}").AppendLine($"Commit: {report.CommitHash}").AppendLine($"Verdict: {report.Verdict}");foreach(var s in report.Scenarios)b.AppendLine($"{s.Id}. {s.Name}: {s.Status} {s.Comment}");File.WriteAllText(txt,b.ToString());}
+ private static string Hash(string path)=>File.Exists(path)?Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant():"not supplied";
+}
