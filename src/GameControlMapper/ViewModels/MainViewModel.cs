@@ -216,7 +216,7 @@ public sealed class MainViewModel : ObservableObject
         var profileNames = await _profileStore.ListProfilesAsync();
         if (profileNames.Count == 0)
         {
-            var profile = MapperProfile.CreateDefault("Основной");
+            var profile = MapperProfile.CreateDefault("Основной — Tanks Blitz");
             await _profileStore.SaveAsync(profile);
             profileNames = await _profileStore.ListProfilesAsync();
         }

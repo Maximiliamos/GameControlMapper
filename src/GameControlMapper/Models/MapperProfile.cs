@@ -5,7 +5,7 @@ namespace GameControlMapper.Models;
 /// </summary>
 public sealed class MapperProfile
 {
-    public string Name { get; set; } = "Default";
+    public string Name { get; set; } = "Основной";
     public string Game { get; set; } = string.Empty;
     public int ResolutionWidth { get; set; } = 1920;
     public int ResolutionHeight { get; set; } = 1080;
@@ -20,7 +20,7 @@ public sealed class MapperProfile
     public GameWindowBinding Window { get; set; } = new();
     public List<ControlBinding> Bindings { get; set; } = [];
 
-    public static MapperProfile CreateDefault(string name = "Default")
+    public static MapperProfile CreateDefault(string name = "Основной")
     {
         return new MapperProfile
         {
@@ -30,25 +30,29 @@ public sealed class MapperProfile
             {
                 ActivationHotkey = "LeftCtrl",
                 UseMouseDrag = false,
-                SensitivityX = 0.35,
-                SensitivityY = 0.30,
+                SensitivityX = 0.50,
+                SensitivityY = 0.50,
                 DeadZone = 1.5,
                 Smooth = 0.7,
                 MaxSpeed = 14,
-                AnchorX = 960,
-                AnchorY = 540,
-                DragRadius = 120
+                AnchorX = 1011,
+                AnchorY = 527,
+                DragRadius = 140
             },
             Bindings =
             [
-                new ControlBinding { Name = "Move", Hotkey = "WASD", X = 210, Y = 755, Width = 220, Height = 220, Kind = BindingKind.Joystick, Color = "#4CC9F0", UseNativeInput = false, Comment = "Touch joystick" },
-                new ControlBinding { Name = "Camera", Hotkey = "LeftCtrl", X = 955, Y = 480, Width = 110, Height = 110, Kind = BindingKind.Aim, Color = "#8B5CF6", Opacity = 0.25, UseNativeInput = false, Comment = "Hold Ctrl and move mouse: touch drag camera" },
-                new ControlBinding { Name = "Fire", Hotkey = "MouseLeft", X = 1585, Y = 628, Width = 130, Height = 130, Kind = BindingKind.MouseArea, Color = "#FF6B6B", UseNativeInput = false, Comment = "Touch fire button" },
-                new ControlBinding { Name = "Aim", Hotkey = "MouseRight", X = 1645, Y = 790, Width = 125, Height = 125, Kind = BindingKind.MouseArea, Color = "#FFD166", UseNativeInput = false, Comment = "Touch aim button" },
-                new ControlBinding { Name = "Shell 1", Hotkey = "1", X = 1828, Y = 454, Width = 76, Height = 76, Kind = BindingKind.Tap, Color = "#60A5FA" },
-                new ControlBinding { Name = "Repair", Hotkey = "Q", X = 80, Y = 510, Width = 82, Height = 92, Kind = BindingKind.Tap, Color = "#4CC9F0" },
-                new ControlBinding { Name = "Consumable 2", Hotkey = "E", X = 18, Y = 478, Width = 76, Height = 76, Kind = BindingKind.Tap, Color = "#38BDF8" },
-                new ControlBinding { Name = "Consumable 3", Hotkey = "R", X = 18, Y = 568, Width = 76, Height = 76, Kind = BindingKind.Tap, Color = "#94A3B8" }
+                new ControlBinding { Name = "Движение", Hotkey = "WASD", X = 179, Y = 778, Width = 175, Height = 175, Kind = BindingKind.Joystick, Color = "#4CC9F0", Comment = "W — вперёд, A/D — поворот, S — назад." },
+                new ControlBinding { Name = "Камера", Hotkey = "LeftCtrl", X = 961, Y = 477, Width = 100, Height = 100, Kind = BindingKind.Aim, Color = "#8B5CF6", Opacity = 0.28, Comment = "Удерживайте Ctrl и двигайте мышь для обзора." },
+                new ControlBinding { Name = "Огонь", Hotkey = "MouseLeft", X = 1610, Y = 632, Width = 100, Height = 100, Kind = BindingKind.MouseArea, Color = "#FF6B6B", Comment = "Левая кнопка мыши удерживает кнопку огня." },
+                new ControlBinding { Name = "Прицел", Hotkey = "MouseRight", X = 1649, Y = 800, Width = 100, Height = 100, Kind = BindingKind.MouseArea, Color = "#FFD166", Comment = "Правая кнопка мыши удерживает кнопку прицела." },
+                new ControlBinding { Name = "Снаряд 1", Hotkey = "1", X = 16, Y = 362, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#60A5FA" },
+                new ControlBinding { Name = "Снаряд 2", Hotkey = "2", X = 20, Y = 443, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#60A5FA" },
+                new ControlBinding { Name = "Снаряд 3", Hotkey = "3", X = 22, Y = 535, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#60A5FA" },
+                new ControlBinding { Name = "Ремкомплект", Hotkey = "Q", X = 1396, Y = 965, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#4CC9F0" },
+                new ControlBinding { Name = "Расходник E", Hotkey = "E", X = 15, Y = 606, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#38BDF8" },
+                new ControlBinding { Name = "Расходник R", Hotkey = "R", X = 1729, Y = 454, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#94A3B8" },
+                new ControlBinding { Name = "Меню", Hotkey = "Escape", X = 23, Y = 17, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#94A3B8" },
+                new ControlBinding { Name = "Действие", Hotkey = "Space", X = 1830, Y = 450, Width = 80, Height = 80, Kind = BindingKind.Tap, Color = "#34D399" }
             ]
         };
     }
