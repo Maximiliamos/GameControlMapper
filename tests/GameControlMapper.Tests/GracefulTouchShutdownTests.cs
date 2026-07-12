@@ -279,6 +279,9 @@ public sealed class GracefulTouchShutdownTests
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Manager, Backend, new FrameContext());
             Scheduler.Start();
             var input = new NullInputSimulator();
+            var targetSession = new TargetWindowSessionManager(
+                new FixedGeometryProvider(new PhysicalClientRect(0, 0, 1920, 1080)),
+                NullLogger<TargetWindowSessionManager>.Instance);
             Mapping = new InputMappingEngine(
                 new KeyboardHookService(NullLogger<KeyboardHookService>.Instance),
                 new MouseHookService(NullLogger<MouseHookService>.Instance),
@@ -289,10 +292,12 @@ public sealed class GracefulTouchShutdownTests
                 TouchEngine,
                 Scheduler,
                 new HotkeyParser(),
-                new CoordinateScaler(),
+                targetSession,
+                new WindowCoordinateTransformer(),
                 NullLogger<InputMappingEngine>.Instance);
             var profile = MapperProfile.CreateDefault();
             profile.Gamepad.Enabled = false;
+            profile.Window.WindowHandle = 1;
             Mapping.SetProfile(profile);
         }
 
@@ -301,6 +306,13 @@ public sealed class GracefulTouchShutdownTests
             Mapping.Dispose();
             Scheduler.Dispose();
         }
+    }
+
+    private sealed class FixedGeometryProvider : IGameWindowGeometryProvider
+    {
+        private readonly PhysicalClientRect _rect;
+        public FixedGeometryProvider(PhysicalClientRect rect) => _rect = rect;
+        public WindowGeometryResult GetClientRect(nint windowHandle) => WindowGeometryResult.Success(_rect);
     }
 
     private sealed class NullTouchSimulator : ITouchSimulator

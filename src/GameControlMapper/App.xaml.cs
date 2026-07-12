@@ -19,6 +19,7 @@ public partial class App : System.Windows.Application
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
+        _serviceProvider.GetRequiredService<DpiAwarenessDiagnostics>().LogCurrentContext();
 
         // Initialize Touch Backend and Scheduler
         var touchBackend = _serviceProvider.GetRequiredService<ITouchBackend>();
@@ -78,6 +79,12 @@ public partial class App : System.Windows.Application
         services.AddSingleton<XInputGamepadMapper>();
         services.AddSingleton<InputMappingEngine>();
         services.AddSingleton<GameWindowService>();
+        services.AddSingleton<IGameWindowNativeAdapter, WindowsGameWindowNativeAdapter>();
+        services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();
+        services.AddSingleton<TargetWindowSessionManager>();
+        services.AddSingleton<ITargetWindowSessionValidator>(provider => provider.GetRequiredService<TargetWindowSessionManager>());
+        services.AddSingleton<WindowCoordinateTransformer>();
+        services.AddSingleton<DpiAwarenessDiagnostics>();
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MainWindow>();
         services.AddSingleton<TouchDebugViewModel>();

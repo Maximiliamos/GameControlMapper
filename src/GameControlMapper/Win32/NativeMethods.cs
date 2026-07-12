@@ -39,6 +39,7 @@ public static class NativeMethods
     public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int LLMHF_INJECTED = 0x00000001;
+    public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
     public const uint TOUCH_FEEDBACK_NONE = 0x00000003;
     public const uint PT_TOUCH = 0x00000002;
     public const uint POINTER_FLAG_NONE = 0x00000000;
@@ -199,11 +200,20 @@ public static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool IsWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetThreadDpiAwarenessContext();
+
+    [DllImport("user32.dll")]
+    public static extern bool AreDpiAwarenessContextsEqual(IntPtr dpiContextA, IntPtr dpiContextB);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetWindowText(IntPtr hWnd, char[] lpString, int nMaxCount);

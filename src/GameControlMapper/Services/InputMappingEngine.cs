@@ -15,7 +15,8 @@ public sealed class InputMappingEngine : IDisposable
     private readonly TouchEngine _touchEngine;
     private readonly TouchScheduler _touchScheduler;
     private readonly HotkeyParser _hotkeyParser;
-    private readonly CoordinateScaler _coordinateScaler;
+    private readonly TargetWindowSessionManager _targetSession;
+    private readonly WindowCoordinateTransformer _windowCoordinateTransformer;
     private readonly ILogger<InputMappingEngine> _logger;
     private readonly object _gate = new();
     private readonly HashSet<int> _pressedKeys = [];
@@ -27,8 +28,7 @@ public sealed class InputMappingEngine : IDisposable
     private Task<TouchShutdownResult>? _stopTask;
     private bool _disposed;
     private MapperProfile? _profile;
-    private int _screenWidth;
-    private int _screenHeight;
+    private int _coordinateWarningLogged;
 
     public InputMappingEngine(
         KeyboardHookService keyboardHook,
@@ -40,7 +40,8 @@ public sealed class InputMappingEngine : IDisposable
         TouchEngine touchEngine,
         TouchScheduler touchScheduler,
         HotkeyParser hotkeyParser,
-        CoordinateScaler coordinateScaler,
+        TargetWindowSessionManager targetSession,
+        WindowCoordinateTransformer windowCoordinateTransformer,
         ILogger<InputMappingEngine> logger)
     {
         _keyboardHook = keyboardHook;
@@ -52,12 +53,9 @@ public sealed class InputMappingEngine : IDisposable
         _touchEngine = touchEngine;
         _touchScheduler = touchScheduler;
         _hotkeyParser = hotkeyParser;
-        _coordinateScaler = coordinateScaler;
+        _targetSession = targetSession;
+        _windowCoordinateTransformer = windowCoordinateTransformer;
         _logger = logger;
-
-        // Get actual screen resolution
-        _screenWidth = Win32.NativeMethods.GetSystemMetrics(Win32.NativeMethods.SM_CXSCREEN);
-        _screenHeight = Win32.NativeMethods.GetSystemMetrics(Win32.NativeMethods.SM_CYSCREEN);
 
         _keyboardHook.KeyDown += OnKeyDown;
         _keyboardHook.KeyUp += OnKeyUp;
@@ -65,6 +63,7 @@ public sealed class InputMappingEngine : IDisposable
         _mouseHook.ButtonUp += OnMouseButtonUp;
         _keyboardHook.ShouldSuppressKey = ShouldSuppressKey;
         _mouseHook.ShouldSuppressButton = ShouldSuppressButton;
+        _touchScheduler.TargetSessionInvalidated += OnTargetSessionInvalidated;
         _keyboardHook.Start();
         _mouseHook.Start();
     }
@@ -113,7 +112,17 @@ public sealed class InputMappingEngine : IDisposable
             }
 
             if (_stopTask is { IsCompleted: false }) return;
+            if (_profile is null) return;
+            var targetStart = _targetSession.TryStart(
+                new IntPtr(_profile.Window.WindowHandle),
+                new ProfileSize(_profile.ResolutionWidth, _profile.ResolutionHeight));
+            if (!targetStart.Succeeded)
+            {
+                _logger.LogWarning("Input mapping start rejected: {Reason}", targetStart.Error);
+                return;
+            }
             _stopTask = null;
+            Interlocked.Exchange(ref _coordinateWarningLogged, 0);
             IsActive = true;
             _touchEngine.StartAcceptingContacts();
             _touchScheduler.Resume();
@@ -141,6 +150,7 @@ public sealed class InputMappingEngine : IDisposable
             if (_stopTask is not null) return _stopTask;
 
             IsActive = false;
+            _targetSession.Stop();
             _touchEngine.StopAcceptingContacts();
             _gestureCancellation.Cancel();
             _cameraMouseLook.Stop();
@@ -179,6 +189,11 @@ public sealed class InputMappingEngine : IDisposable
         ActiveChanged?.Invoke(this, false);
         _logger.LogInformation("Input mapping inactive. Touch release succeeded: {Succeeded}", result.Succeeded);
         return result;
+    }
+
+    private void OnTargetSessionInvalidated(object? sender, EventArgs e)
+    {
+        _ = StopAsync();
     }
 
     private void OnKeyDown(object? sender, int virtualKey)
@@ -255,12 +270,12 @@ public sealed class InputMappingEngine : IDisposable
                 var cameraBinding = FindCameraBinding(_profile);
                 var rawAnchorX = cameraBinding?.CenterX ?? _profile.Camera.AnchorX;
                 var rawAnchorY = cameraBinding?.CenterY ?? _profile.Camera.AnchorY;
-                var (scaledAnchorX, scaledAnchorY) = ScalePointToScreen(rawAnchorX, rawAnchorY);
+                if (!TryScalePointToTarget(rawAnchorX, rawAnchorY, out var scaledAnchor)) return;
                 _logger.LogInformation(
-                    "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → ScaledAnchor={SX},{SY} (screen {SW}x{SH})",
+                    "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
                     rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
-                    scaledAnchorX, scaledAnchorY, _screenWidth, _screenHeight);
-                _cameraMouseLook.Start(_profile.Camera, scaledAnchorX, scaledAnchorY);
+                    scaledAnchor.X, scaledAnchor.Y);
+                _cameraMouseLook.Start(_profile.Camera, scaledAnchor.X, scaledAnchor.Y);
                 return;
             }
 
@@ -280,9 +295,9 @@ public sealed class InputMappingEngine : IDisposable
                 if (!_activeMouseAreas.ContainsKey(binding.Id))
                 {
                     var contactId = GetActionContactId(binding);
-                    var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                    _logger.LogInformation("HandlePressedInput: Calling TouchDown({ContactId}, {ScaledX}, {ScaledY}) for MouseArea '{Name}'", contactId, scaledX, scaledY, binding.Name);
-                    _touchEngine.StartTouch(contactId, scaledX, scaledY);
+                    if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) continue;
+                    _logger.LogInformation("HandlePressedInput: Calling TouchDown({ContactId}, {ScaledX}, {ScaledY}) for MouseArea '{Name}'", contactId, scaled.X, scaled.Y, binding.Name);
+                    _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
                     _activeMouseAreas[binding.Id] = new MouseAreaRuntimeState(contactId);
                 }
             }
@@ -375,9 +390,10 @@ public sealed class InputMappingEngine : IDisposable
             return false;
         }
 
+        var targetRect = _targetSession.Current?.ClientRect;
         _logger.LogInformation(
-            "UpdateJoystickBindings: ProfileResolution={PW}x{PH}, ScreenResolution={SW}x{SH}",
-            _profile.ResolutionWidth, _profile.ResolutionHeight, _screenWidth, _screenHeight);
+            "UpdateJoystickBindings: ProfileResolution={PW}x{PH}, TargetClient={TargetClient}",
+            _profile.ResolutionWidth, _profile.ResolutionHeight, targetRect);
 
         var handled = false;
         foreach (var binding in _profile.Bindings.Where(IsWasdJoystick))
@@ -397,23 +413,23 @@ public sealed class InputMappingEngine : IDisposable
             var targetX = binding.CenterX + normalizedX * radius;
             var targetY = binding.CenterY + normalizedY * radius;
 
-            var (scaledCenterX, scaledCenterY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-            var (scaledTargetX, scaledTargetY) = ScalePointToScreen(targetX, targetY);
+            if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaledCenter) ||
+                !TryScalePointToTarget(targetX, targetY, out var scaledTarget)) continue;
 
             _logger.LogInformation(
                 "Joystick: BindingCenter={BCX},{BCY} → ScaledCenter={SCX},{SCY}, " +
                 "BindingTarget={BTX},{BTY} → ScaledTarget={STX},{STY}",
-                binding.CenterX, binding.CenterY, scaledCenterX, scaledCenterY,
-                targetX, targetY, scaledTargetX, scaledTargetY);
+                binding.CenterX, binding.CenterY, scaledCenter.X, scaledCenter.Y,
+                targetX, targetY, scaledTarget.X, scaledTarget.Y);
 
             if (!_joysticks.TryGetValue(binding.Id, out var state))
             {
                 state = new JoystickRuntimeState(GetJoystickContactId(binding));
                 _joysticks[binding.Id] = state;
-                _touchEngine.StartTouch(state.ContactId, scaledCenterX, scaledCenterY);
+                _touchEngine.StartTouch(state.ContactId, scaledCenter.X, scaledCenter.Y);
             }
 
-            _touchEngine.MoveTouch(state.ContactId, scaledTargetX, scaledTargetY);
+            _touchEngine.MoveTouch(state.ContactId, scaledTarget.X, scaledTarget.Y);
         }
 
         return handled;
@@ -463,43 +479,43 @@ public sealed class InputMappingEngine : IDisposable
                 case BindingKind.MouseArea:
                 case BindingKind.Aim:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        _touchEngine.StartTouch(contactId, scaledX, scaledY);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
                         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
                         _touchEngine.EndTouch(contactId);
                         break;
                     }
                 case BindingKind.DoubleTap:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        _touchEngine.StartTouch(contactId, scaledX, scaledY);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
                         await Task.Delay(30, cancellationToken).ConfigureAwait(false);
                         _touchEngine.EndTouch(contactId);
                         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.StartTouch(contactId, scaledX, scaledY);
+                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
                         await Task.Delay(30, cancellationToken).ConfigureAwait(false);
                         _touchEngine.EndTouch(contactId);
                         break;
                     }
                 case BindingKind.Hold:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        _touchEngine.StartTouch(contactId, scaledX, scaledY);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        _touchEngine.StartTouch(contactId, scaled.X, scaled.Y);
                         await Task.Delay(Math.Max(35, binding.HoldMilliseconds), cancellationToken).ConfigureAwait(false);
                         _touchEngine.EndTouch(contactId);
                         break;
                     }
                 case BindingKind.Swipe:
                     {
-                        var (scaledStartX, scaledY) = ScalePointToScreen(binding.X, binding.CenterY);
-                        var (scaledEndX, _) = ScalePointToScreen(binding.X + binding.Width, binding.CenterY);
+                        if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
+                            !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
                         const int steps = 10;
-                        _touchEngine.StartTouch(contactId, scaledStartX, scaledY);
+                        _touchEngine.StartTouch(contactId, scaledStart.X, scaledStart.Y);
                         for (int i = 1; i <= steps; i++)
                         {
                             double t = (double)i / steps;
-                            double x = scaledStartX + (scaledEndX - scaledStartX) * t;
-                            _touchEngine.MoveTouch(contactId, x, scaledY);
+                            double x = scaledStart.X + (scaledEnd.X - scaledStart.X) * t;
+                            _touchEngine.MoveTouch(contactId, x, scaledStart.Y);
                             await Task.Delay(Math.Max(Math.Max(120, binding.HoldMilliseconds) / steps, 10), cancellationToken).ConfigureAwait(false);
                         }
                         _touchEngine.EndTouch(contactId);
@@ -521,32 +537,32 @@ public sealed class InputMappingEngine : IDisposable
                 case BindingKind.MouseArea:
                 case BindingKind.Aim:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        await _touchSimulator.TapAsync(scaledX, scaledY, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        await _touchSimulator.TapAsync(scaled.X, scaled.Y, cancellationToken: CancellationToken.None).ConfigureAwait(false);
                         break;
                     }
                 case BindingKind.DoubleTap:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        await _touchSimulator.DoubleTapAsync(scaledX, scaledY, CancellationToken.None).ConfigureAwait(false);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        await _touchSimulator.DoubleTapAsync(scaled.X, scaled.Y, CancellationToken.None).ConfigureAwait(false);
                         break;
                     }
                 case BindingKind.Hold:
                     {
-                        var (scaledX, scaledY) = ScalePointToScreen(binding.CenterX, binding.CenterY);
-                        await _touchSimulator.HoldAsync(GetActionContactId(binding), scaledX, scaledY, Math.Max(35, binding.HoldMilliseconds), CancellationToken.None).ConfigureAwait(false);
+                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                        await _touchSimulator.HoldAsync(GetActionContactId(binding), scaled.X, scaled.Y, Math.Max(35, binding.HoldMilliseconds), CancellationToken.None).ConfigureAwait(false);
                         break;
                     }
                 case BindingKind.Swipe:
                     {
-                        var (scaledStartX, scaledY) = ScalePointToScreen(binding.X, binding.CenterY);
-                        var (scaledEndX, _) = ScalePointToScreen(binding.X + binding.Width, binding.CenterY);
+                        if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
+                            !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
                         await _touchSimulator.SwipeAsync(
                             GetActionContactId(binding),
-                            scaledStartX,
-                            scaledY,
-                            scaledEndX,
-                            scaledY,
+                            scaledStart.X,
+                            scaledStart.Y,
+                            scaledEnd.X,
+                            scaledEnd.Y,
                             Math.Max(120, binding.HoldMilliseconds),
                             CancellationToken.None).ConfigureAwait(false);
                         break;
@@ -653,19 +669,34 @@ public sealed class InputMappingEngine : IDisposable
         return (int)Models.FixedContacts.Joystick;
     }
 
-    private (double X, double Y) ScalePointToScreen(double x, double y)
+    private bool TryScalePointToTarget(double x, double y, out PhysicalScreenPoint point)
     {
-        if (_profile == null)
+        point = default;
+        var session = _targetSession.Current;
+        if (session is null || !session.IsActive)
         {
-            return (x, y);
+            LogCoordinateWarningOnce("Target window session is not active.");
+            return false;
         }
 
-        _screenWidth = Win32.NativeMethods.GetSystemMetrics(Win32.NativeMethods.SM_CXSCREEN);
-        _screenHeight = Win32.NativeMethods.GetSystemMetrics(Win32.NativeMethods.SM_CYSCREEN);
-        return _coordinateScaler.ScalePoint(
-            x, y,
-            _profile.ResolutionWidth, _profile.ResolutionHeight,
-            _screenWidth, _screenHeight);
+        var result = _windowCoordinateTransformer.TryTransform(
+            new ProfilePoint(x, y), session.ProfileSize, session.ClientRect, session.ScaleMode);
+        if (!result.Succeeded || result.IsOutsideProfile)
+        {
+            LogCoordinateWarningOnce(result.IsOutsideProfile
+                ? $"Profile point ({x}, {y}) is outside the half-open profile bounds."
+                : result.Error ?? "Coordinate transformation failed.");
+            return false;
+        }
+
+        point = result.Point;
+        return true;
+    }
+
+    private void LogCoordinateWarningOnce(string message)
+    {
+        if (Interlocked.CompareExchange(ref _coordinateWarningLogged, 1, 0) == 0)
+            _logger.LogWarning("Touch coordinate rejected: {Reason}", message);
     }
 
     private int GetActionContactId(ControlBinding binding)
@@ -710,6 +741,7 @@ public sealed class InputMappingEngine : IDisposable
         _mouseHook.ButtonUp -= OnMouseButtonUp;
         _keyboardHook.ShouldSuppressKey = null;
         _mouseHook.ShouldSuppressButton = null;
+        _touchScheduler.TargetSessionInvalidated -= OnTargetSessionInvalidated;
         _keyboardHook.Stop();
         _mouseHook.Stop();
         _gestureCancellation.Dispose();

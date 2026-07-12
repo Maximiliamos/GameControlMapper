@@ -97,6 +97,18 @@ public sealed class GameWindowGeometryProviderTests
         Assert.Equal("IsWindowVisible", result.Operation);
     }
 
+    [Fact]
+    public void GetClientRect_RejectsMinimizedWindow()
+    {
+        var native = ValidNative();
+        native.IsIconicResult = true;
+
+        var result = Provider(native).GetClientRect(0x1234);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("IsIconic", result.Operation);
+    }
+
     private static GameWindowGeometryProvider Provider(FakeNative native) =>
         new(native, NullLogger<GameWindowGeometryProvider>.Instance);
 
@@ -116,11 +128,13 @@ public sealed class GameWindowGeometryProviderTests
         public bool IsVisibleResult { get; set; }
         public bool GetClientRectResult { get; set; }
         public bool ClientToScreenResult { get; set; }
+        public bool IsIconicResult { get; set; }
         public NativeClientRect ClientRect { get; set; }
         public PhysicalScreenPoint ScreenOrigin { get; set; }
         public int LastError { get; set; }
         public bool IsWindow(nint windowHandle) => IsWindowResult;
         public bool IsWindowVisible(nint windowHandle) => IsVisibleResult;
+        public bool IsIconic(nint windowHandle) => IsIconicResult;
         public bool GetClientRect(nint windowHandle, out NativeClientRect rect) { rect = ClientRect; return GetClientRectResult; }
         public bool ClientToScreen(nint windowHandle, ref PhysicalScreenPoint point) { point = ScreenOrigin; return ClientToScreenResult; }
         public int GetLastError() => LastError;

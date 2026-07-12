@@ -16,6 +16,7 @@ public interface IGameWindowNativeAdapter
 {
     bool IsWindow(nint windowHandle);
     bool IsWindowVisible(nint windowHandle);
+    bool IsIconic(nint windowHandle);
     bool GetClientRect(nint windowHandle, out NativeClientRect rect);
     bool ClientToScreen(nint windowHandle, ref PhysicalScreenPoint point);
     int GetLastError();
@@ -42,6 +43,8 @@ public sealed class GameWindowGeometryProvider : IGameWindowGeometryProvider
             return Fail("IsWindow", windowHandle, _native.GetLastError(), "Window handle is invalid or the window was destroyed.");
         if (!_native.IsWindowVisible(windowHandle))
             return Fail("IsWindowVisible", windowHandle, _native.GetLastError(), "Window is not visible.");
+        if (_native.IsIconic(windowHandle))
+            return Fail("IsIconic", windowHandle, 0, "Window is minimized.");
         if (!_native.GetClientRect(windowHandle, out var client))
             return Fail("GetClientRect", windowHandle, _native.GetLastError(), "Unable to read the client rectangle.");
 
@@ -70,6 +73,7 @@ public sealed class WindowsGameWindowNativeAdapter : IGameWindowNativeAdapter
 {
     public bool IsWindow(nint windowHandle) => NativeMethods.IsWindow(windowHandle);
     public bool IsWindowVisible(nint windowHandle) => NativeMethods.IsWindowVisible(windowHandle);
+    public bool IsIconic(nint windowHandle) => NativeMethods.IsIconic(windowHandle);
 
     public bool GetClientRect(nint windowHandle, out NativeClientRect rect)
     {

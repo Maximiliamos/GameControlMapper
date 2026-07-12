@@ -109,10 +109,10 @@ public sealed class WindowCoordinateTransformerTests
     }
 
     [Fact]
-    public void BoundaryPoint_IsNotOutsideProfile()
+    public void BoundaryPoint_IsOutsideProfile()
     {
         var result = Transform(new(1920, 1080), new(1920, 1080), new(0, 0, 1920, 1080), CoordinateScaleMode.Stretch);
-        Assert.False(result.IsOutsideProfile);
+        Assert.True(result.IsOutsideProfile);
     }
 
     [Fact]
@@ -120,6 +120,70 @@ public sealed class WindowCoordinateTransformerTests
     {
         var result = _transformer.TryTransform(new(0, 0), new(1920, 1080), new(0, 0, 100, 100), (CoordinateScaleMode)99);
         Assert.False(result.Succeeded);
+    }
+
+    [Fact]
+    public void PointAtProfileWidth_IsOutsideProfile()
+    {
+        var result = Transform(new(1920, 500), new(1920, 1080), new(0, 0, 1920, 1080), CoordinateScaleMode.Stretch);
+        Assert.True(result.IsOutsideProfile);
+    }
+
+    [Fact]
+    public void PointAtProfileHeight_IsOutsideProfile()
+    {
+        var result = Transform(new(500, 1080), new(1920, 1080), new(0, 0, 1920, 1080), CoordinateScaleMode.Stretch);
+        Assert.True(result.IsOutsideProfile);
+    }
+
+    [Fact]
+    public void PointImmediatelyInsideBottomRight_StaysInsideClientPixels()
+    {
+        var result = Transform(
+            new(Math.BitDecrement(1920d), Math.BitDecrement(1080d)),
+            new(1920, 1080), new(100, 200, 1600, 1200), CoordinateScaleMode.Stretch);
+        Assert.False(result.IsOutsideProfile);
+        Assert.InRange(result.Point.X, 100, 1699);
+        Assert.InRange(result.Point.Y, 200, 1399);
+    }
+
+    [Fact]
+    public void RoundingNearRightEdge_NeverProducesClientRight()
+    {
+        var result = Transform(new(1919.9, 500), new(1920, 1080), new(0, 0, 1600, 1200), CoordinateScaleMode.Stretch);
+        Assert.Equal(1599, result.Point.X);
+    }
+
+    [Fact]
+    public void RoundingNearBottomEdge_NeverProducesClientBottom()
+    {
+        var result = Transform(new(500, 1079.9), new(1920, 1080), new(0, 0, 1600, 1200), CoordinateScaleMode.Stretch);
+        Assert.Equal(1199, result.Point.Y);
+    }
+
+    [Fact]
+    public void UniformFit_RoundingNeverEscapesContentViewport()
+    {
+        var result = Transform(new(1919.9, 1079.9), new(1920, 1080), new(0, 0, 1600, 1200), CoordinateScaleMode.UniformFit);
+        Assert.Equal(new PhysicalScreenPoint(1599, 1049), result.Point);
+    }
+
+    [Fact]
+    public void NegativeOrigin_RoundingStaysInsideHalfOpenBounds()
+    {
+        var result = Transform(new(1919.9, 1079.9), new(1920, 1080), new(-1600, -1200, 1600, 1200), CoordinateScaleMode.Stretch);
+        Assert.Equal(new PhysicalScreenPoint(-1, -1), result.Point);
+    }
+
+    [Fact]
+    public void ViewportWithoutIntegerPixels_ReturnsControlledError()
+    {
+        var result = _transformer.TryTransform(
+            new ProfilePoint(.5, 1), new ProfileSize(1, 3),
+            new PhysicalClientRect(0, 0, 1, 1), CoordinateScaleMode.UniformFit);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("no physical pixel", result.Error);
     }
 
     private CoordinateTransformResult Transform(ProfilePoint point, ProfileSize size, PhysicalClientRect rect, CoordinateScaleMode mode)

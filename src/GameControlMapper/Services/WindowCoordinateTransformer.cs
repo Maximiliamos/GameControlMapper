@@ -53,10 +53,23 @@ public sealed class WindowCoordinateTransformer
             screenY < int.MinValue || screenY > int.MaxValue)
             return CoordinateTransformResult.Failure("Transformed point is outside the supported physical pixel range.");
 
-        var outside = point.X < 0 || point.Y < 0 || point.X > profileSize.Width || point.Y > profileSize.Height;
+        var outside = point.X < 0 || point.Y < 0 || point.X >= profileSize.Width || point.Y >= profileSize.Height;
+        var roundedX = RoundPixel(screenX);
+        var roundedY = RoundPixel(screenY);
+        if (!outside)
+        {
+            var minimumX = checked((int)Math.Ceiling(viewport.Left));
+            var minimumY = checked((int)Math.Ceiling(viewport.Top));
+            var maximumX = checked((int)Math.Ceiling(viewport.Left + viewport.Width) - 1);
+            var maximumY = checked((int)Math.Ceiling(viewport.Top + viewport.Height) - 1);
+            if (minimumX > maximumX || minimumY > maximumY)
+                return CoordinateTransformResult.Failure("Content viewport contains no physical pixel centers.");
+            roundedX = Math.Clamp(roundedX, minimumX, maximumX);
+            roundedY = Math.Clamp(roundedY, minimumY, maximumY);
+        }
         return new CoordinateTransformResult(
             true,
-            new PhysicalScreenPoint(RoundPixel(screenX), RoundPixel(screenY)),
+            new PhysicalScreenPoint(roundedX, roundedY),
             viewport,
             outside,
             null);

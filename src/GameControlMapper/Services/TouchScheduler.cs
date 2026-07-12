@@ -12,10 +12,12 @@ public class TouchScheduler : IDisposable
     private readonly ContactManager _manager;
     private readonly ITouchBackend _backend;
     private readonly FrameContext _context;
+    private readonly ITargetWindowSessionValidator? _sessionValidator;
     private CancellationTokenSource? _cts;
     private int _frameId = 0;
     
     public event EventHandler? FrameSent;
+    public event EventHandler? TargetSessionInvalidated;
     
     private int _frameCount;
     private DateTime _lastFpsUpdate;
@@ -42,12 +44,14 @@ public class TouchScheduler : IDisposable
         ILogger<TouchScheduler> logger,
         ContactManager manager,
         ITouchBackend backend,
-        FrameContext context)
+        FrameContext context,
+        ITargetWindowSessionValidator? sessionValidator = null)
     {
         _logger = logger;
         _manager = manager;
         _backend = backend;
         _context = context;
+        _sessionValidator = sessionValidator;
     }
 
     public void Start()
@@ -141,6 +145,11 @@ public class TouchScheduler : IDisposable
 
     private async Task SendFrameCoreAsync(CancellationToken ct)
     {
+        if (_sessionValidator is not null && !_sessionValidator.ValidateActiveSession())
+        {
+            TargetSessionInvalidated?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         await _sendGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {

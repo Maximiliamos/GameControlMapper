@@ -28,7 +28,13 @@ Profiles are stored as readable JSON files in `Profiles`. The editor updates `Bi
 
 `GameWindowGeometryProvider` obtains the target window client size with `GetClientRect` and converts its client origin to an absolute screen origin with `ClientToScreen`. For this PerMonitorV2-aware process, the provider contract is physical Windows screen pixels. WPF device-independent pixels are not accepted by the transformer and must be converted at the WPF boundary in a later integration step.
 
-The existing `CoordinateScaler` remains the legacy whole-primary-screen scaler used by the current input path. The new window transform is not connected to Touch Injection yet.
+The existing `CoordinateScaler` remains available only as a legacy whole-primary-screen utility. Production points emitted by `InputMappingEngine` use the target-window transform before reaching `TouchEngine`.
+
+Profile and viewport bounds are half-open: `0 <= X < Width` and `0 <= Y < Height`. Rasterization uses `MidpointRounding.AwayFromZero`, followed for in-bounds points by the explicit integer viewport bounds `Ceiling(left)` through `Ceiling(right) - 1` (and the equivalent Y bounds). This prevents rounding from producing the exclusive right or bottom coordinate. Out-of-profile points remain diagnostic transform results and are rejected by the production mapping path rather than clamped.
+
+The production mapping path now owns one `TargetWindowSession` through `TargetWindowSessionManager`. A session snapshots HWND, profile size, `Stretch` mode, physical client geometry, and a generation at Start. The scheduler validates that snapshot before each frame. Window movement, resize, hiding, minimization, destruction, or geometry read failure invalidates the session and joins the existing idempotent graceful Stop/Up flow. A new Start is required to capture new geometry.
+
+Per-monitor DPI awareness is declared by `ApplicationDPIAware=true/PM` and `ApplicationHighDpiMode=PerMonitorV2` in the project. Startup logs the current thread DPI awareness context. Client geometry from `GetClientRect` plus `ClientToScreen` is treated as physical pixels without applying WPF `DpiScale`. WPF capture-window DIP conversion remains intentionally outside this integration.
 
 ## Tanks Blitz Gamepad Flow
 
