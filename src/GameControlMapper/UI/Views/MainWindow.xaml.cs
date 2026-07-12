@@ -150,12 +150,24 @@ public partial class MainWindow : Window
         Activate();
     }
 
-    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        if (_isClosing) return;
+        e.Cancel = true;
         _isClosing = true;
-        _mappingEngine.Stop();
-        _overlayWindow?.Close();
-        _overlayWindow = null;
+        try
+        {
+            await _mappingEngine.StopAsync();
+            _overlayWindow?.Close();
+            _overlayWindow = null;
+            _ = Dispatcher.BeginInvoke(Close);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(ex.Message, "Ошибка завершения", MessageBoxButton.OK, MessageBoxImage.Error);
+            _isClosing = false;
+            e.Cancel = false;
+        }
     }
 
     private void OnClosed(object? sender, EventArgs e)

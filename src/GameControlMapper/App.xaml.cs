@@ -42,7 +42,8 @@ public partial class App : System.Windows.Application
         if (_serviceProvider != null)
         {
             var touchScheduler = _serviceProvider.GetService<TouchScheduler>();
-            touchScheduler?.Stop();
+            touchScheduler?.ShutdownAsync().GetAwaiter().GetResult();
+            _serviceProvider.GetService<ITouchBackend>()?.Shutdown();
         }
         _serviceProvider?.Dispose();
         _serviceProvider = null;

@@ -61,4 +61,17 @@ public sealed class TouchLifecycleTests
 
         Assert.Equal(TouchState.Update, manager.ActiveContacts[1].State);
     }
+
+    [Fact]
+    public void MoveBeforeFirstFrame_UpdatesCoordinatesButPreservesDownState()
+    {
+        var manager = CreateManager();
+        manager.StartContact(1, 100, 200);
+
+        manager.MoveContact(1, 150, 250);
+
+        Assert.Equal(TouchState.Down, manager.ActiveContacts[1].State);
+        Assert.Equal(150, manager.ActiveContacts[1].X);
+        Assert.Equal(250, manager.ActiveContacts[1].Y);
+    }
 }

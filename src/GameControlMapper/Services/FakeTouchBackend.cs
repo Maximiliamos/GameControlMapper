@@ -11,7 +11,7 @@ public class FakeTouchBackend : ITouchBackend
 {
     public TouchCapabilities Capabilities { get; } = new TouchCapabilities(32, true, true, true);
 
-    public List<TouchFrame> RecordedFrames { get; } = new List<TouchFrame>();
+    public List<TouchFrameSnapshot> RecordedFrames { get; } = [];
     public bool IsInitialized { get; private set; }
 
     public bool Initialize()
@@ -22,7 +22,10 @@ public class FakeTouchBackend : ITouchBackend
 
     public bool SendFrame(TouchFrame frame)
     {
-        RecordedFrames.Add(frame);
+        var contacts = frame.GetContacts().ToArray()
+            .Select(contact => new TouchContactSnapshot(contact.ContactId, contact.X, contact.Y, contact.State))
+            .ToArray();
+        RecordedFrames.Add(new TouchFrameSnapshot(frame.FrameId, frame.Timestamp, contacts));
         return true;
     }
 
@@ -37,10 +40,10 @@ public class FakeTouchBackend : ITouchBackend
     /// </summary>
     public void Clear()
     {
-        foreach (var frame in RecordedFrames)
-        {
-            frame.Dispose();
-        }
         RecordedFrames.Clear();
     }
 }
+
+public sealed record TouchFrameSnapshot(int FrameId, DateTime Timestamp, IReadOnlyList<TouchContactSnapshot> Contacts);
+
+public sealed record TouchContactSnapshot(int ContactId, double X, double Y, TouchState State);

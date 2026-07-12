@@ -44,7 +44,7 @@ public sealed class MainViewModel : ObservableObject
         PasteBindingCommand = new RelayCommand(_ => PasteBinding(), _ => _clipboardBinding is not null);
         CopyLogsCommand = new RelayCommand(_ => CopyLogs());
         ActivateCommand = new RelayCommand(_ => ActivateMapping());
-        DeactivateCommand = new RelayCommand(_ => DeactivateMapping());
+        DeactivateCommand = new AsyncRelayCommand(_ => DeactivateMappingAsync());
         SelectAreaCommand = new RelayCommand(_ => SelectAreaRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         PickCenterCommand = new RelayCommand(_ => PickCenterRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
 
@@ -77,7 +77,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand PasteBindingCommand { get; }
     public RelayCommand CopyLogsCommand { get; }
     public RelayCommand ActivateCommand { get; }
-    public RelayCommand DeactivateCommand { get; }
+    public AsyncRelayCommand DeactivateCommand { get; }
     public RelayCommand SelectAreaCommand { get; }
     public RelayCommand PickCenterCommand { get; }
 
@@ -583,9 +583,9 @@ public sealed class MainViewModel : ObservableObject
         ToggleOverlayRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    private void DeactivateMapping()
+    private async Task DeactivateMappingAsync()
     {
-        _mappingEngine.Stop();
+        await _mappingEngine.StopAsync();
     }
 
     private async Task RefreshProfilesAsync(string? selectName = null)

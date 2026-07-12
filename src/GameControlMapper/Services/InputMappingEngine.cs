@@ -13,6 +13,7 @@ public sealed class InputMappingEngine : IDisposable
     private readonly IInputSimulator _inputSimulator;
     private readonly ITouchSimulator _touchSimulator;
     private readonly TouchEngine _touchEngine;
+    private readonly TouchScheduler _touchScheduler;
     private readonly HotkeyParser _hotkeyParser;
     private readonly CoordinateScaler _coordinateScaler;
     private readonly ILogger<InputMappingEngine> _logger;
@@ -23,6 +24,7 @@ public sealed class InputMappingEngine : IDisposable
     private readonly Dictionary<Guid, int> _actionContactIds = [];
     private readonly Dictionary<Guid, SemaphoreSlim> _actionLocks = [];
     private CancellationTokenSource _gestureCancellation = new();
+    private Task<TouchShutdownResult>? _stopTask;
     private bool _disposed;
     private MapperProfile? _profile;
     private int _screenWidth;
@@ -36,6 +38,7 @@ public sealed class InputMappingEngine : IDisposable
         IInputSimulator inputSimulator,
         ITouchSimulator touchSimulator,
         TouchEngine touchEngine,
+        TouchScheduler touchScheduler,
         HotkeyParser hotkeyParser,
         CoordinateScaler coordinateScaler,
         ILogger<InputMappingEngine> logger)
@@ -47,6 +50,7 @@ public sealed class InputMappingEngine : IDisposable
         _inputSimulator = inputSimulator;
         _touchSimulator = touchSimulator;
         _touchEngine = touchEngine;
+        _touchScheduler = touchScheduler;
         _hotkeyParser = hotkeyParser;
         _coordinateScaler = coordinateScaler;
         _logger = logger;
@@ -108,7 +112,11 @@ public sealed class InputMappingEngine : IDisposable
                 return;
             }
 
+            if (_stopTask is { IsCompleted: false }) return;
+            _stopTask = null;
             IsActive = true;
+            _touchEngine.StartAcceptingContacts();
+            _touchScheduler.Resume();
             if (_gestureCancellation.IsCancellationRequested)
             {
                 _gestureCancellation.Dispose();
@@ -124,16 +132,16 @@ public sealed class InputMappingEngine : IDisposable
         _logger.LogInformation("Input mapping active.");
     }
 
-    public void Stop()
+    public void Stop() => StopAsync().GetAwaiter().GetResult();
+
+    public Task<TouchShutdownResult> StopAsync()
     {
         lock (_gate)
         {
-            if (_disposed)
-            {
-                return;
-            }
+            if (_stopTask is not null) return _stopTask;
 
             IsActive = false;
+            _touchEngine.StopAcceptingContacts();
             _gestureCancellation.Cancel();
             _cameraMouseLook.Stop();
             _gamepadMapper.Stop();
@@ -151,10 +159,26 @@ public sealed class InputMappingEngine : IDisposable
 
             _touchEngine.ReleaseAll();
             _pressedKeys.Clear();
+            _stopTask = CompleteStopAsync();
+            return _stopTask;
         }
+    }
 
+    private async Task<TouchShutdownResult> CompleteStopAsync()
+    {
+        TouchShutdownResult result;
+        try
+        {
+            result = await _touchScheduler.PauseAndFlushAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Touch shutdown failed");
+            result = new TouchShutdownResult(false, false, [], []);
+        }
         ActiveChanged?.Invoke(this, false);
-        _logger.LogInformation("Input mapping inactive.");
+        _logger.LogInformation("Input mapping inactive. Touch release succeeded: {Succeeded}", result.Succeeded);
+        return result;
     }
 
     private void OnKeyDown(object? sender, int virtualKey)
@@ -666,6 +690,7 @@ public sealed class InputMappingEngine : IDisposable
 
     public void Dispose()
     {
+        Stop();
         lock (_gate)
         {
             if (_disposed)
@@ -674,11 +699,7 @@ public sealed class InputMappingEngine : IDisposable
             }
 
             _disposed = true;
-            _gestureCancellation.Cancel();
             IsActive = false;
-            _cameraMouseLook.Stop();
-            _gamepadMapper.Stop();
-            ReleaseAllJoysticks();
             _touchSimulator.ReleaseAll();
             _pressedKeys.Clear();
         }

@@ -8,6 +8,8 @@ public class TouchEngine
 {
     private readonly ILogger<TouchEngine> _logger;
     private readonly ContactManager _contacts;
+    private readonly object _gate = new();
+    private bool _acceptingContacts = true;
 
     public TouchEngine(ILogger<TouchEngine> logger, ContactManager contacts)
     {
@@ -17,7 +19,15 @@ public class TouchEngine
 
     public void StartTouch(int id, double x, double y)
     {
-        _contacts.StartContact(id, x, y);
+        lock (_gate)
+        {
+            if (!_acceptingContacts)
+            {
+                _logger.LogDebug("StartTouch ignored while touch engine is stopping");
+                return;
+            }
+            _contacts.StartContact(id, x, y);
+        }
         _logger.LogTrace("StartTouch: ID={Id}, X={X}, Y={Y}", id, x, y);
     }
 
@@ -44,5 +54,15 @@ public class TouchEngine
     public void ReleaseAll()
     {
         _contacts.ReleaseAll();
+    }
+
+    public void StartAcceptingContacts()
+    {
+        lock (_gate) _acceptingContacts = true;
+    }
+
+    public void StopAcceptingContacts()
+    {
+        lock (_gate) _acceptingContacts = false;
     }
 }

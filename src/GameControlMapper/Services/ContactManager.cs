@@ -15,6 +15,7 @@ public class ContactManager
     private readonly TouchContact[] _contactPool;
     private readonly Dictionary<int, TouchContact> _activeContacts = new();
     private readonly Queue<int> _freeDynamicIds = new();
+    private readonly HashSet<int> _successfullyStartedContacts = [];
     private readonly object _gate = new();
     
     public event EventHandler? ContactsChanged;
@@ -93,7 +94,7 @@ public class ContactManager
             if (!_activeContacts.TryGetValue(id, out var contact)) return false;
             contact.X = x;
             contact.Y = y;
-            contact.State = TouchState.Update;
+            if (contact.State != TouchState.Down) contact.State = TouchState.Update;
             contact.Timestamp = DateTime.UtcNow;
             contact.UpdateCount++;
             return true;
@@ -184,6 +185,24 @@ public class ContactManager
         lock (_gate) return _activeContacts.Values.Select(Clone).ToList();
     }
 
+    public List<TouchContact> GetContactsForFrame()
+    {
+        lock (_gate)
+        {
+            var orphanUps = _activeContacts.Values
+                .Where(contact => contact.State == TouchState.Up && !_successfullyStartedContacts.Contains(contact.ContactId))
+                .Select(contact => contact.ContactId)
+                .ToArray();
+            foreach (var id in orphanUps)
+            {
+                _activeContacts[id].Reset();
+                _activeContacts.Remove(id);
+            }
+
+            return _activeContacts.Values.Select(Clone).ToList();
+        }
+    }
+
     public void CompleteReleasedContacts(IEnumerable<int> contactIds)
     {
         lock (_gate)
@@ -194,6 +213,7 @@ public class ContactManager
                 {
                     contact.Reset();
                     _activeContacts.Remove(id);
+                    _successfullyStartedContacts.Remove(id);
                 }
             }
         }
@@ -206,9 +226,10 @@ public class ContactManager
         {
             foreach (var id in contactIds)
             {
-                if (_activeContacts.TryGetValue(id, out var contact) && contact.State == TouchState.Down)
+                if (_activeContacts.TryGetValue(id, out var contact))
                 {
-                    contact.State = TouchState.Update;
+                    _successfullyStartedContacts.Add(id);
+                    if (contact.State == TouchState.Down) contact.State = TouchState.Update;
                 }
             }
         }
@@ -224,6 +245,40 @@ public class ContactManager
             foreach (var contact in _activeContacts.Values) contact.State = TouchState.Up;
         }
         _logger.LogInformation("Все контакты помечены для завершения");
+        ContactsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public IReadOnlyList<int> PrepareForShutdown()
+    {
+        lock (_gate)
+        {
+            foreach (var id in _activeContacts.Keys.ToArray())
+            {
+                var contact = _activeContacts[id];
+                if (!_successfullyStartedContacts.Contains(id))
+                {
+                    contact.Reset();
+                    _activeContacts.Remove(id);
+                    continue;
+                }
+
+                contact.State = TouchState.Up;
+            }
+
+            return _activeContacts.Keys.OrderBy(id => id).ToArray();
+        }
+    }
+
+    public void DiscardContacts(IEnumerable<int> contactIds)
+    {
+        lock (_gate)
+        {
+            foreach (var id in contactIds)
+            {
+                if (_activeContacts.Remove(id, out var contact)) contact.Reset();
+                _successfullyStartedContacts.Remove(id);
+            }
+        }
         ContactsChanged?.Invoke(this, EventArgs.Empty);
     }
 

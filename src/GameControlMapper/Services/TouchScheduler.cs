@@ -21,6 +21,9 @@ public class TouchScheduler : IDisposable
     private DateTime _lastFpsUpdate;
     private double _currentFps;
     private Task? _worker;
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private volatile bool _paused;
+    private bool _disposed;
     public double CurrentFps
     {
         get => _currentFps;
@@ -49,6 +52,8 @@ public class TouchScheduler : IDisposable
 
     public void Start()
     {
+        if (_disposed) throw new ObjectDisposedException(nameof(TouchScheduler));
+        _paused = false;
         if (_cts != null) return;
 
         _cts = new CancellationTokenSource();
@@ -59,15 +64,57 @@ public class TouchScheduler : IDisposable
 
     public void Stop()
     {
+        ShutdownAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task ShutdownAsync()
+    {
         if (_cts == null) return;
 
         _cts.Cancel();
-        try { _worker?.Wait(TimeSpan.FromSeconds(1)); }
-        catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is TaskCanceledException)) { }
+        if (_worker is not null)
+        {
+            try { await _worker.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
         _cts.Dispose();
         _cts = null;
         _worker = null;
         _logger.LogInformation("TouchScheduler stopped");
+    }
+
+    public void Resume() => _paused = false;
+
+    public async Task<TouchShutdownResult> PauseAndFlushAsync(CancellationToken cancellationToken = default)
+    {
+        _paused = true;
+        await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var contactIds = _manager.PrepareForShutdown();
+            if (contactIds.Count == 0)
+            {
+                return new TouchShutdownResult(true, false, [], []);
+            }
+
+            var contacts = _manager.GetContactsForFrame();
+            using var frame = CreateFrame(contacts);
+            var sent = _backend.SendFrame(frame);
+            if (sent)
+            {
+                _manager.CompleteReleasedContacts(contactIds);
+                FrameSent?.Invoke(this, EventArgs.Empty);
+                return new TouchShutdownResult(true, true, contactIds, []);
+            }
+
+            _logger.LogError("Final touch release frame failed for contacts: {ContactIds}", string.Join(", ", contactIds));
+            _manager.DiscardContacts(contactIds);
+            return new TouchShutdownResult(false, true, [], contactIds);
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
     }
 
     private async Task RunLoopAsync(CancellationToken ct)
@@ -76,7 +123,7 @@ public class TouchScheduler : IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                await SendFrameAsync(ct);
+                if (!_paused) await SendFrameAsync(ct).ConfigureAwait(false);
                 await Task.Delay(8, ct);
             }
         }
@@ -86,7 +133,25 @@ public class TouchScheduler : IDisposable
 
     private Task SendFrameAsync(CancellationToken ct)
     {
-        _frameId++;
+        return SendFrameCoreAsync(ct);
+    }
+
+    private async Task SendFrameCoreAsync(CancellationToken ct)
+    {
+        await _sendGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_paused) return;
+            SendFrameUnderGate();
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
+    }
+
+    private void SendFrameUnderGate()
+    {
         _frameCount++;
         
         // Calculate FPS
@@ -98,23 +163,24 @@ public class TouchScheduler : IDisposable
             _lastFpsUpdate = now;
         }
         
-        var contacts = _manager.GetActiveContacts();
-        if (contacts.Count == 0) return Task.CompletedTask;
+        var contacts = _manager.GetContactsForFrame();
+        if (contacts.Count == 0) return;
 
-        using var frame = new TouchFrame(
-            _frameId,
-            now,
-            TimeSpan.FromMilliseconds(8),
-            _context);
-        frame.SetContacts(contacts);
+        using var frame = CreateFrame(contacts);
 
         LogFrame(frame);
 
-        if (!_backend.SendFrame(frame)) return Task.CompletedTask;
+        if (!_backend.SendFrame(frame)) return;
         _manager.AdvanceSentContacts(contacts.Where(c => c.State == TouchState.Down).Select(c => c.ContactId));
         _manager.CompleteReleasedContacts(contacts.Where(c => c.State == TouchState.Up).Select(c => c.ContactId));
         FrameSent?.Invoke(this, EventArgs.Empty);
-        return Task.CompletedTask;
+    }
+
+    private TouchFrame CreateFrame(List<TouchContact> contacts)
+    {
+        var frame = new TouchFrame(++_frameId, DateTime.Now, TimeSpan.FromMilliseconds(8), _context);
+        frame.SetContacts(contacts);
+        return frame;
     }
 
     private void LogFrame(TouchFrame frame)
@@ -145,6 +211,9 @@ public class TouchScheduler : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
         Stop();
+        _sendGate.Dispose();
+        _disposed = true;
     }
 }
