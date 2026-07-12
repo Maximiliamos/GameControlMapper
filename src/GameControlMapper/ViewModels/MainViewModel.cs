@@ -444,8 +444,8 @@ public sealed class MainViewModel : ObservableObject
     private async Task SaveProfileAsync()
     {
         CurrentProfile.Bindings = Bindings.Select(binding => binding.Model).ToList();
-        await _profileStore.SaveAsync(CurrentProfile);
-        await RefreshProfilesAsync(CurrentProfile.Name);
+        try { await _profileStore.SaveAsync(CurrentProfile); await RefreshProfilesAsync(CurrentProfile.Name); }
+        catch (ProfileValidationException ex) { _logger.LogError(ex,"Profile validation failed during save"); System.Windows.MessageBox.Show("Профиль содержит недопустимые данные. Подробности записаны в журнал.","Профиль",MessageBoxButton.OK,MessageBoxImage.Warning); }
     }
 
     private async Task DeleteProfileAsync()
@@ -472,9 +472,8 @@ public sealed class MainViewModel : ObservableObject
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Профили JSON (*.json)|*.json|Все файлы (*.*)|*.*" };
         if (dialog.ShowDialog() == true)
         {
-            var profile = await _profileStore.ImportAsync(dialog.FileName);
-            await RefreshProfilesAsync(profile.Name);
-            await LoadProfileObjectAsync(profile);
+            try { var profile = await _profileStore.ImportAsync(dialog.FileName); await RefreshProfilesAsync(profile.Name); await LoadProfileObjectAsync(profile); }
+            catch (ProfileValidationException ex) { _logger.LogError(ex,"Profile import validation failed: {Path}",dialog.FileName); System.Windows.MessageBox.Show("Импорт отклонён: файл повреждён или содержит недопустимые данные.","Импорт профиля",MessageBoxButton.OK,MessageBoxImage.Warning); }
         }
     }
 

@@ -61,6 +61,7 @@ public partial class App : System.Windows.Application
             builder.AddProvider(new AppLoggerProvider(logSink));
         });
 
+        services.AddSingleton<IMapperProfileValidator, MapperProfileValidator>();
         services.AddSingleton<IProfileStore, ProfileStore>();
         services.AddSingleton<CoordinateScaler>();
         services.AddSingleton<IInputSimulator, SendInputSimulator>();
