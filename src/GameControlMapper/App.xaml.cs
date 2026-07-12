@@ -83,6 +83,9 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();
         services.AddSingleton<ITargetWindowActivationNativeAdapter, WindowsTargetWindowActivationNativeAdapter>();
         services.AddSingleton<ITargetWindowActivationMonitor, TargetWindowActivationMonitor>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ITargetWindowGeometryNativeAdapter, WindowsTargetWindowGeometryNativeAdapter>();
+        services.AddSingleton<ITargetWindowGeometryMonitor, TargetWindowGeometryMonitor>();
         services.AddSingleton<TargetWindowSessionManager>();
         services.AddSingleton<ITargetWindowSessionValidator>(provider => provider.GetRequiredService<TargetWindowSessionManager>());
         services.AddSingleton<WindowCoordinateTransformer>();

@@ -94,6 +94,7 @@ public sealed class WindowCoordinateIntegrationTests
         Assert.True(fixture.Backend.WaitForState(TouchState.Down));
 
         fixture.Geometry.Result = WindowGeometryResult.Success(new(100, 100, 1000, 500));
+        fixture.GeometryEvents.Raise(1);
         Assert.True(fixture.Backend.WaitForState(TouchState.Up));
 
         Assert.False(fixture.Mapping.IsActive);
@@ -121,6 +122,7 @@ public sealed class WindowCoordinateIntegrationTests
         fixture.StartJoystick();
         Assert.True(fixture.Backend.WaitForState(TouchState.Down));
         fixture.Geometry.Result = failure;
+        fixture.GeometryEvents.Raise(1);
 
         Assert.True(fixture.Backend.WaitForState(TouchState.Up));
 
@@ -136,6 +138,7 @@ public sealed class WindowCoordinateIntegrationTests
         fixture.StartJoystick();
         Assert.True(fixture.Backend.WaitForState(TouchState.Down));
         fixture.Geometry.Result = WindowGeometryResult.Failure("IsWindow", 1400, "destroyed");
+        fixture.GeometryEvents.Raise(1);
 
         var validation = fixture.Scheduler.SendFrameOnceAsync();
         var manualStop = fixture.Mapping.StopAsync();
@@ -182,6 +185,7 @@ public sealed class WindowCoordinateIntegrationTests
     {
         public MutableGeometryProvider Geometry { get; }
         public TargetWindowSessionManager Session { get; }
+        public FakeGeometryEvents GeometryEvents { get; } = new();
         public ContactManager Contacts { get; }
         public TouchEngine TouchEngine { get; }
         public RecordingBackend Backend { get; } = new();
@@ -192,7 +196,9 @@ public sealed class WindowCoordinateIntegrationTests
         public Fixture(PhysicalClientRect rect)
         {
             Geometry = new MutableGeometryProvider(rect);
-            Session = new TargetWindowSessionManager(Geometry, NullLogger<TargetWindowSessionManager>.Instance);
+            var native = new FakeWindowNative();
+            var monitor = new TargetWindowGeometryMonitor(Geometry, native, GeometryEvents, TimeProvider.System);
+            Session = new TargetWindowSessionManager(Geometry, NullLogger<TargetWindowSessionManager>.Instance, geometryMonitor: monitor);
             Contacts = new ContactManager(NullLogger<ContactManager>.Instance, new TouchCapabilities(10, true, false, true));
             TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Contacts);
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Contacts, Backend, new FrameContext(), Session);
@@ -239,6 +245,22 @@ public sealed class WindowCoordinateIntegrationTests
             Mapping.Dispose();
             Scheduler.Dispose();
         }
+    }
+
+    private sealed class FakeGeometryEvents : ITargetWindowGeometryNativeAdapter
+    {
+        private Action<nint>? _callback;
+        public nint Install(Action<nint> callback) { _callback = callback; return 1; }
+        public void Uninstall(nint hook) => _callback = null;
+        public void Raise(nint hwnd) => _callback?.Invoke(hwnd);
+    }
+
+    private sealed class FakeWindowNative : IGameWindowNativeAdapter
+    {
+        public bool IsWindow(nint h) => true; public bool IsWindowVisible(nint h) => true; public bool IsIconic(nint h) => false;
+        public bool GetClientRect(nint h, out NativeClientRect r) { r = new(0,0,1,1); return true; }
+        public bool ClientToScreen(nint h, ref PhysicalScreenPoint p) => true; public int GetLastError() => 0;
+        public uint GetWindowProcessId(nint h) => 1;
     }
 
     private sealed class MutableGeometryProvider : IGameWindowGeometryProvider

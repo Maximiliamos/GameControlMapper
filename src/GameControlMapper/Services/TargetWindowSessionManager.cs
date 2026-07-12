@@ -16,17 +16,22 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
     private readonly ILogger<TargetWindowSessionManager> _logger;
     private readonly IGameWindowNativeAdapter? _native;
     private readonly ITargetWindowActivationMonitor? _activationMonitor;
+    private readonly ITargetWindowGeometryMonitor? _geometryMonitor;
     private readonly object _gate = new();
     private TargetWindowSession? _session;
     private long _generation;
+    private long _invalidatedGeneration;
 
     public TargetWindowSessionManager(IGameWindowGeometryProvider geometryProvider, ILogger<TargetWindowSessionManager> logger,
-        IGameWindowNativeAdapter? native = null, ITargetWindowActivationMonitor? activationMonitor = null)
+        IGameWindowNativeAdapter? native = null, ITargetWindowActivationMonitor? activationMonitor = null,
+        ITargetWindowGeometryMonitor? geometryMonitor = null)
     {
         _geometryProvider = geometryProvider;
         _logger = logger;
         _native = native;
         _activationMonitor = activationMonitor;
+        _geometryMonitor = geometryMonitor;
+        if (_geometryMonitor is not null) _geometryMonitor.Invalidated += OnGeometryInvalidated;
     }
 
     public TargetWindowSession? Current
@@ -63,6 +68,8 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
                 processId,
                 ++_generation,
                 true);
+            Volatile.Write(ref _invalidatedGeneration, 0);
+            _geometryMonitor?.Track(_session);
             return new(true, _session, null);
         }
     }
@@ -80,27 +87,29 @@ public sealed class TargetWindowSessionManager : ITargetWindowSessionValidator
     {
         TargetWindowSession? snapshot;
         lock (_gate) snapshot = _session;
-        if (snapshot is null || !snapshot.IsActive) return true;
+        if (snapshot is null) return true;
+        if (Volatile.Read(ref _invalidatedGeneration) == snapshot.Generation) return false;
+        if (!snapshot.IsActive) return true;
 
-        var processMatches = _native is null || _native.GetWindowProcessId(snapshot.WindowHandle) == snapshot.ProcessId;
-        var geometry = _geometryProvider.GetClientRect(snapshot.WindowHandle);
-        if (processMatches && geometry.Succeeded && geometry.ClientRect == snapshot.ClientRect) return true;
+        return snapshot.IsActive;
+    }
 
+    private void OnGeometryInvalidated(object? sender, long generation)
+    {
         lock (_gate)
         {
-            if (_session?.Generation == snapshot.Generation)
-                _session = snapshot with { IsActive = false };
+            if (_session?.Generation != generation || !_session.IsActive) return;
+            _session = _session with { IsActive = false };
+            Volatile.Write(ref _invalidatedGeneration, generation);
         }
-        _logger.LogWarning("Target window session {Generation} became invalid: {Reason}", snapshot.Generation,
-            !processMatches ? "target HWND process identity changed" : geometry.Succeeded ? "client geometry changed" : geometry.Error);
-        return false;
+        _logger.LogWarning("Target window session {Generation} became invalid after cached geometry validation.", generation);
     }
 
     public void Stop()
     {
         lock (_gate)
         {
-            if (_session is not null) _session = _session with { IsActive = false };
+            if (_session is not null) { _geometryMonitor?.Stop(_session.Generation); Volatile.Write(ref _invalidatedGeneration, 0); _session = _session with { IsActive = false }; }
         }
     }
 }
