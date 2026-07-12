@@ -22,6 +22,14 @@ Profiles are stored as readable JSON files in `Profiles`. The editor updates `Bi
 
 `InputMappingEngine` receives keyboard hook events, matches hotkeys through `HotkeyParser`, and delegates actions to `IInputSimulator`. Mouse Look uses `CameraMouseLookService`, which captures relative mouse movement, sends relative deltas, and restores the cursor to the activation origin.
 
+## Coordinate Spaces
+
+`WindowCoordinateTransformer` is an isolated mathematical core that converts `ProfilePoint` values from a declared `ProfileSize` into absolute physical screen pixels inside a `PhysicalClientRect`. It supports `Stretch` compatibility scaling and aspect-preserving `UniformFit` with a centered content viewport. Points outside profile bounds are transformed without clamping and are marked with `IsOutsideProfile`.
+
+`GameWindowGeometryProvider` obtains the target window client size with `GetClientRect` and converts its client origin to an absolute screen origin with `ClientToScreen`. For this PerMonitorV2-aware process, the provider contract is physical Windows screen pixels. WPF device-independent pixels are not accepted by the transformer and must be converted at the WPF boundary in a later integration step.
+
+The existing `CoordinateScaler` remains the legacy whole-primary-screen scaler used by the current input path. The new window transform is not connected to Touch Injection yet.
+
 ## Tanks Blitz Gamepad Flow
 
 `XInputGamepadMapper` follows the AntiMicroX approach: it polls an XInput gamepad and maps state changes to native keyboard and mouse events instead of coordinate clicks.

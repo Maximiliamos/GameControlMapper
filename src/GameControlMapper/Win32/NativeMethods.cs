@@ -196,6 +196,15 @@ public static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetWindowText(IntPtr hWnd, char[] lpString, int nMaxCount);
 
