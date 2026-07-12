@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Optimize>true</Optimize>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <InformationalVersion Condition="'$(SourceRevisionId)' != ''">$(Version)+$(SourceRevisionId)</InformationalVersion>
+    <InformationalVersion Condition="'$(SourceRevisionId)' == ''">$(Version)</InformationalVersion>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,15 @@
+name: Windows CI
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore GameControlMapper.sln
+      - run: dotnet build GameControlMapper.sln -c Release --no-restore
+      - run: dotnet test GameControlMapper.sln -c Release --no-build
