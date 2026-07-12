@@ -1,0 +1,79 @@
+<Window x:Class="GameControlMapper.UI.Views.TouchDebugOverlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:viewModels="clr-namespace:GameControlMapper.ViewModels"
+        Title="Диагностика касаний"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="300"
+        Height="400"
+        Left="10"
+        Top="10"
+        IsHitTestVisible="False">
+    <Border Background="#20000000" CornerRadius="8" Padding="16">
+        <StackPanel>
+            <TextBlock Text="Диагностика касаний" FontWeight="Bold" FontSize="18" Foreground="White" Margin="0,0,0,16"/>
+            
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Камера:" Grid.Column="0" FontSize="14" Foreground="White"/>
+                <TextBlock Grid.Column="1" 
+                           Text="{Binding CameraActive, Converter={StaticResource BooleanLabelConverter}, ConverterParameter='АКТИВНА|НЕАКТИВНА'}"
+                           FontSize="14" 
+                           FontWeight="Bold"
+                           Foreground="{Binding CameraActive, Converter={StaticResource HexBrushConverter}, ConverterParameter='#22C55E|#EF4444'}"/>
+            </Grid>
+            
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Джойстик:" Grid.Column="0" FontSize="14" Foreground="White"/>
+                <TextBlock Grid.Column="1" 
+                           Text="{Binding JoystickActive, Converter={StaticResource BooleanLabelConverter}, ConverterParameter='АКТИВЕН|НЕАКТИВЕН'}"
+                           FontSize="14" 
+                           FontWeight="Bold"
+                           Foreground="{Binding JoystickActive, Converter={StaticResource HexBrushConverter}, ConverterParameter='#22C55E|#EF4444'}"/>
+            </Grid>
+            
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Огонь:" Grid.Column="0" FontSize="14" Foreground="White"/>
+                <TextBlock Grid.Column="1" 
+                           Text="{Binding FireDown, Converter={StaticResource BooleanLabelConverter}, ConverterParameter='НАЖАТО|ОТПУЩЕНО'}"
+                           FontSize="14" 
+                           FontWeight="Bold"
+                           Foreground="{Binding FireDown, Converter={StaticResource HexBrushConverter}, ConverterParameter='#22C55E|#EF4444'}"/>
+            </Grid>
+            
+            <Grid Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Прицел:" Grid.Column="0" FontSize="14" Foreground="White"/>
+                <TextBlock Grid.Column="1" 
+                           Text="{Binding AimDown, Converter={StaticResource BooleanLabelConverter}, ConverterParameter='НАЖАТО|ОТПУЩЕНО'}"
+                           FontSize="14" 
+                           FontWeight="Bold"
+                           Foreground="{Binding AimDown, Converter={StaticResource HexBrushConverter}, ConverterParameter='#22C55E|#EF4444'}"/>
+            </Grid>
+            
+            <Separator Background="#40FFFFFF" Margin="0,0,0,16"/>
+            
+            <TextBlock Text="Частота кадров:" FontSize="14" Foreground="White" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding InjectedFps, StringFormat='{}{0:F0} Hz'}" FontSize="20" FontWeight="Bold" Foreground="#3B82F6"/>
+        </StackPanel>
+    </Border>
+</Window>
