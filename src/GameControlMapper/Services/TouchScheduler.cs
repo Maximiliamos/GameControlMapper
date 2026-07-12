@@ -136,6 +136,9 @@ public class TouchScheduler : IDisposable
         return SendFrameCoreAsync(ct);
     }
 
+    internal Task SendFrameOnceAsync(CancellationToken cancellationToken = default) =>
+        SendFrameCoreAsync(cancellationToken);
+
     private async Task SendFrameCoreAsync(CancellationToken ct)
     {
         await _sendGate.WaitAsync(ct).ConfigureAwait(false);

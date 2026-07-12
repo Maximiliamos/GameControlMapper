@@ -149,6 +149,57 @@ public sealed class GracefulTouchShutdownTests
         Assert.Equal(frameCount, fixture.Backend.Frames.Count);
     }
 
+    [Fact]
+    public async Task TickQueuedBeforePause_DoesNotSendAfterFinalUp()
+    {
+        using var enteredFirstSend = new ManualResetEventSlim();
+        using var releaseFirstSend = new ManualResetEventSlim();
+        using var fixture = new SchedulerFixture(new RecordingBackend((sendNumber, _) =>
+        {
+            if (sendNumber == 1)
+            {
+                enteredFirstSend.Set();
+                releaseFirstSend.Wait(TimeSpan.FromSeconds(5));
+            }
+            return true;
+        }));
+        fixture.Manager.StartContact(4, 100, 200);
+        fixture.Scheduler.Start();
+        Assert.True(enteredFirstSend.Wait(TimeSpan.FromSeconds(5)));
+        var queuedTick = fixture.Scheduler.SendFrameOnceAsync();
+
+        var stopTask = fixture.Scheduler.PauseAndFlushAsync();
+        releaseFirstSend.Set();
+        await Task.WhenAll(queuedTick, stopTask);
+
+        Assert.Equal([TouchState.Down, TouchState.Up],
+            fixture.Backend.Frames.SelectMany(frame => frame.Contacts).Select(contact => contact.State));
+        Assert.Empty(fixture.Manager.GetActiveContacts());
+    }
+
+    [Fact]
+    public async Task StartStopStartStop_ReleasesContactsInBothSessions()
+    {
+        using var fixture = new MappingFixture();
+
+        fixture.Mapping.Start();
+        fixture.TouchEngine.StartTouch(4, 100, 200);
+        Assert.True(fixture.Backend.WaitForFrameCount(1));
+        var firstStop = await fixture.Mapping.StopAsync();
+        var framesAfterFirstStop = fixture.Backend.FrameCount;
+
+        fixture.Mapping.Start();
+        fixture.TouchEngine.StartTouch(4, 300, 400);
+        Assert.True(fixture.Backend.WaitForFrameCount(framesAfterFirstStop + 1));
+        var secondStop = await fixture.Mapping.StopAsync();
+
+        Assert.True(firstStop.Succeeded);
+        Assert.True(secondStop.Succeeded);
+        Assert.Equal(2, fixture.Backend.Contacts(TouchState.Down, 4).Count);
+        Assert.Equal(2, fixture.Backend.Contacts(TouchState.Up, 4).Count);
+        Assert.Empty(fixture.Manager.GetActiveContacts());
+    }
+
     private sealed class SchedulerFixture : IDisposable
     {
         public ContactManager Manager { get; }
@@ -185,6 +236,7 @@ public sealed class GracefulTouchShutdownTests
         public TouchCapabilities Capabilities { get; } = new(10, true, false, true);
         public List<TouchFrameSnapshot> Frames { get; } = [];
         public ManualResetEventSlim FrameSent { get; } = new();
+        public int FrameCount { get { lock (_gate) return Frames.Count; } }
         public bool Initialize() => true;
 
         public bool SendFrame(TouchFrame frame)
@@ -204,7 +256,80 @@ public sealed class GracefulTouchShutdownTests
             lock (_gate) return Frames.SelectMany(f => f.Contacts).Where(c => c.State == state && c.ContactId == id).ToList();
         }
 
+        public bool WaitForFrameCount(int expected)
+        {
+            return SpinWait.SpinUntil(() => FrameCount >= expected, TimeSpan.FromSeconds(5));
+        }
+
         public void Shutdown() { }
+    }
+
+    private sealed class MappingFixture : IDisposable
+    {
+        public ContactManager Manager { get; }
+        public TouchEngine TouchEngine { get; }
+        public TouchScheduler Scheduler { get; }
+        public RecordingBackend Backend { get; } = new();
+        public InputMappingEngine Mapping { get; }
+
+        public MappingFixture()
+        {
+            Manager = new ContactManager(NullLogger<ContactManager>.Instance, new TouchCapabilities(10, true, false, true));
+            TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Manager);
+            Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Manager, Backend, new FrameContext());
+            Scheduler.Start();
+            var input = new NullInputSimulator();
+            Mapping = new InputMappingEngine(
+                new KeyboardHookService(NullLogger<KeyboardHookService>.Instance),
+                new MouseHookService(NullLogger<MouseHookService>.Instance),
+                new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance),
+                new XInputGamepadMapper(input, NullLogger<XInputGamepadMapper>.Instance),
+                input,
+                new NullTouchSimulator(),
+                TouchEngine,
+                Scheduler,
+                new HotkeyParser(),
+                new CoordinateScaler(),
+                NullLogger<InputMappingEngine>.Instance);
+            var profile = MapperProfile.CreateDefault();
+            profile.Gamepad.Enabled = false;
+            Mapping.SetProfile(profile);
+        }
+
+        public void Dispose()
+        {
+            Mapping.Dispose();
+            Scheduler.Dispose();
+        }
+    }
+
+    private sealed class NullTouchSimulator : ITouchSimulator
+    {
+        public Task TapAsync(double x, double y, int milliseconds = 35, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DoubleTapAsync(double x, double y, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task HoldAsync(int contactId, double x, double y, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SwipeAsync(int contactId, double startX, double startY, double endX, double endY, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void TouchDown(int contactId, double x, double y) { }
+        public void TouchMove(int contactId, double x, double y) { }
+        public void TouchUp(int contactId) { }
+        public void ReleaseAll() { }
+    }
+
+    private sealed class NullInputSimulator : IInputSimulator
+    {
+        public Task ExecuteBindingAsync(ControlBinding binding, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DoubleClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SwipeAsync(double startX, double startY, double endX, double endY, int durationMilliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void MouseDownAt(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left) { }
+        public void MouseMoveTo(double x, double y) { }
+        public void MouseUp(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
+        public void MouseDown(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
+        public void KeyDown(string key) { }
+        public void KeyUp(string key) { }
+        public (int X, int Y) GetCursorPosition() => (0, 0);
+        public void RestoreCursor(int x, int y) { }
+        public void MoveRelative(int dx, int dy) { }
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>
