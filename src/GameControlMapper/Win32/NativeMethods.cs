@@ -181,6 +181,15 @@ public static class NativeMethods
     public static extern int ShowCursor(bool bShow);
 
     [DllImport("user32.dll")]
+    public static extern bool GetClipCursor(out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClipCursor(ref RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClipCursor(IntPtr lpRect);
+
+    [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll", SetLastError = true)]

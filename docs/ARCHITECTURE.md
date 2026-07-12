@@ -64,3 +64,20 @@ hook events carry the target generation captured by the callback and the managed
 prevents input queued before focus loss from creating contacts in an ended or later session. Lifecycle hotkeys are
 not suppressed: F8 performs full target validation, F9 joins the current stop, and F10/F11 preserve their existing
 non-touch behavior while ordinary input outside the target remains untouched.
+
+## Continuous camera mouse look
+
+`CameraMouseLookService` owns a generation-scoped cursor session through `IMouseCursorController`. Start saves the
+cursor position and clip rectangle, clips to the target client rectangle when a production target session exists,
+hides the cursor, starts the camera contact, and warps to the physical anchor. Every accepted physical move is
+followed by another warp to the anchor, so desktop edges do not limit rotation. The expected warp position and
+camera generation identify the resulting synthetic move deterministically; it does not alter velocity or touch.
+
+For input vector `d`, movement is ignored when `|d| <= DeadZone`. Sensitivity and inversion are applied per axis.
+Acceleration uses `targetVelocity = sensitiveDelta * (1 + max(0, Acceleration) * |d|)`. Time-based exponential
+smoothing uses `alpha = 1 - exp(-dt / max(Smooth, 0.0001))` and
+`velocity += alpha * (targetVelocity - velocity)`; `Smooth <= 0` means no smoothing. Velocity magnitude is limited
+to `max(0, MaxSpeed)`, and the accumulated touch point is projected onto the circle of radius
+`max(0, DragRadius)` around the anchor. Non-finite input is rejected. Stop is idempotent and restores clip,
+visibility, and the saved position after ending the camera contact. `UseMouseDrag` remains a compatibility field:
+its prior production semantics are ambiguous, so this change does not invent a new branch for it.

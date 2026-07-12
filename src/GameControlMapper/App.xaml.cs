@@ -68,11 +68,14 @@ public partial class App : System.Windows.Application
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
         services.AddSingleton<MouseHookService>();
+        services.AddSingleton<IMouseCursorController, WindowsMouseCursorController>();
         services.AddSingleton(provider =>
         {
             var camera = new CameraMouseLookService(
                 provider.GetRequiredService<TouchEngine>(),
-                provider.GetRequiredService<ILogger<CameraMouseLookService>>());
+                provider.GetRequiredService<ILogger<CameraMouseLookService>>(),
+                provider.GetRequiredService<IMouseCursorController>(), provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<TargetWindowSessionManager>());
             provider.GetRequiredService<MouseHookService>().MouseMoved += camera.OnMouseMove;
             return camera;
         });
