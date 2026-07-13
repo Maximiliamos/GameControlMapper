@@ -10,6 +10,29 @@ namespace GameControlMapper.Tests;
 public sealed class WindowCoordinateIntegrationTests
 {
     [Fact]
+    public async Task CtrlPress_TogglesCameraAndCtrlReleaseKeepsItActive()
+    {
+        using var fixture = new Fixture(new(0, 0, 1920, 1080));
+        fixture.StartCamera();
+
+        fixture.Press(Key.LeftCtrl);
+        Assert.True(fixture.Camera.IsActive);
+        Assert.True(fixture.MouseHook.CaptureMovement);
+        Assert.True(fixture.Backend.WaitForState(TouchState.Down));
+        fixture.Press(Key.LeftCtrl); // low-level auto-repeat must not toggle the mode
+        Assert.True(fixture.Camera.IsActive);
+        fixture.Release(Key.LeftCtrl);
+        Assert.True(fixture.Camera.IsActive);
+        Assert.True(fixture.MouseHook.CaptureMovement);
+        fixture.Press(Key.LeftCtrl);
+        Assert.False(fixture.Camera.IsActive);
+        Assert.False(fixture.MouseHook.CaptureMovement);
+        Assert.True(fixture.Backend.WaitForState(TouchState.Up));
+
+        await fixture.Mapping.StopAsync();
+    }
+
+    [Fact]
     public async Task SelectedWindowOrigin_IsAddedToMappedTouch()
     {
         using var fixture = new Fixture(new(100, 200, 2000, 1000));
@@ -190,6 +213,8 @@ public sealed class WindowCoordinateIntegrationTests
         public TouchEngine TouchEngine { get; }
         public RecordingBackend Backend { get; } = new();
         public TouchScheduler Scheduler { get; }
+        public MouseHookService MouseHook { get; }
+        public CameraMouseLookService Camera { get; }
         public InputMappingEngine Mapping { get; }
         public MapperProfile Profile { get; }
 
@@ -204,10 +229,12 @@ public sealed class WindowCoordinateIntegrationTests
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Contacts, Backend, new FrameContext(), Session);
             Scheduler.Start();
             var input = new NullInputSimulator();
+            Camera = new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance, scheduler: Scheduler);
+            MouseHook = new MouseHookService(NullLogger<MouseHookService>.Instance);
             Mapping = new InputMappingEngine(
                 new KeyboardHookService(NullLogger<KeyboardHookService>.Instance),
-                new MouseHookService(NullLogger<MouseHookService>.Instance),
-                new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance),
+                MouseHook,
+                Camera,
                 new XInputGamepadMapper(input, NullLogger<XInputGamepadMapper>.Instance),
                 input, new NullTouchSimulator(), TouchEngine, Scheduler, new HotkeyParser(), Session,
                 new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance);
@@ -234,9 +261,24 @@ public sealed class WindowCoordinateIntegrationTests
             Press(Key.W);
         }
 
+        public void StartCamera()
+        {
+            Profile.ResolutionWidth = 1920;
+            Profile.ResolutionHeight = 1080;
+            Profile.Bindings = [new ControlBinding { Name = "Камера", Hotkey = "LeftCtrl", Kind = BindingKind.Aim, X = 910, Y = 490, Width = 100, Height = 100 }];
+            Mapping.SetProfile(Profile);
+            Mapping.Start();
+        }
+
         public void Press(Key key)
         {
             var method = typeof(InputMappingEngine).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            method.Invoke(Mapping, [null, KeyInterop.VirtualKeyFromKey(key)]);
+        }
+
+        public void Release(Key key)
+        {
+            var method = typeof(InputMappingEngine).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
             method.Invoke(Mapping, [null, KeyInterop.VirtualKeyFromKey(key)]);
         }
 

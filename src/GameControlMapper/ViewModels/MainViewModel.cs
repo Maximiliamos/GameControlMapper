@@ -513,7 +513,7 @@ public sealed class MainViewModel : ObservableObject
             Color = "#8B5CF6",
             Opacity = 0.22,
             UseNativeInput = false,
-            Comment = "Hold Ctrl and move mouse: injected touch drag for camera."
+            Comment = "Press Ctrl to enable camera control; press Ctrl again to restore the mouse."
         });
 
         UpsertBinding(profile, new ControlBinding

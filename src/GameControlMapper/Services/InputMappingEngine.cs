@@ -69,6 +69,7 @@ public sealed class InputMappingEngine : IDisposable
         _mouseHook.ShouldSuppressButton = ShouldSuppressButton;
         _keyboardHook.CaptureGeneration = CaptureGeneration;
         _mouseHook.CaptureGeneration = CaptureGeneration;
+        _cameraMouseLook.ActiveChanged += OnCameraActiveChanged;
         if (_activationMonitor is not null) _activationMonitor.ActivationChanged += OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated += OnTargetSessionInvalidated;
         _keyboardHook.Start();
@@ -265,8 +266,8 @@ public sealed class InputMappingEngine : IDisposable
                 return;
             }
 
-            _pressedKeys.Add(virtualKey);
-            HandlePressedInput(virtualKey);
+            var isInitialPress = _pressedKeys.Add(virtualKey);
+            HandlePressedInput(virtualKey, isInitialPress);
         }
     }
 
@@ -279,12 +280,12 @@ public sealed class InputMappingEngine : IDisposable
                 return;
             }
 
-            _pressedKeys.Add(virtualKey);
-            HandlePressedInput(virtualKey);
+            var isInitialPress = _pressedKeys.Add(virtualKey);
+            HandlePressedInput(virtualKey, isInitialPress);
         }
     }
 
-    private void HandlePressedInput(int virtualKey)
+    private void HandlePressedInput(int virtualKey, bool isInitialPress)
     {
         if (_profile is null)
         {
@@ -326,21 +327,36 @@ public sealed class InputMappingEngine : IDisposable
         }
 
         if (_hotkeyParser.Matches(_profile.Camera.ActivationHotkey, virtualKey, _pressedKeys))
+        {
+            // Ignore low-level keyboard auto-repeat: one physical Ctrl press changes the mode once.
+            if (!isInitialPress) return;
+            if (_cameraMouseLook.IsActive)
             {
-                var cameraBinding = FindCameraBinding(_profile);
-                var rawAnchorX = cameraBinding?.CenterX ?? _profile.Camera.AnchorX;
-                var rawAnchorY = cameraBinding?.CenterY ?? _profile.Camera.AnchorY;
-                if (!TryScalePointToTarget(rawAnchorX, rawAnchorY, out var scaledAnchor)) return;
-                _logger.LogInformation(
-                    "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
-                    rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
-                    scaledAnchor.X, scaledAnchor.Y);
-                _mouseHook.ResetMovementTracking();
-                _mouseHook.CaptureMovement=true;
-                _cameraMouseLook.Start(_profile.Camera, scaledAnchor.X, scaledAnchor.Y);
-                if(!_cameraMouseLook.IsActive)_mouseHook.CaptureMovement=false;
+                _cameraMouseLook.Stop();
+                _logger.LogInformation("Camera control toggled off; normal mouse movement restored.");
                 return;
             }
+
+            var cameraBinding = FindCameraBinding(_profile);
+            var rawAnchorX = cameraBinding?.CenterX ?? _profile.Camera.AnchorX;
+            var rawAnchorY = cameraBinding?.CenterY ?? _profile.Camera.AnchorY;
+            if (!TryScalePointToTarget(rawAnchorX, rawAnchorY, out var scaledAnchor)) return;
+            _logger.LogInformation(
+                "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
+                rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
+                scaledAnchor.X, scaledAnchor.Y);
+            _mouseHook.ResetMovementTracking();
+            _mouseHook.CaptureMovement = true;
+            if (!_cameraMouseLook.Start(_profile.Camera, scaledAnchor.X, scaledAnchor.Y))
+            {
+                _mouseHook.CaptureMovement = false;
+                _mouseHook.ResetMovementTracking();
+                return;
+            }
+
+            _logger.LogInformation("Camera control toggled on; press Ctrl again to restore the mouse.");
+            return;
+        }
 
         var matches = _profile.Bindings
             .Where(binding => binding.IsActive && !binding.UseNativeInput && _hotkeyParser.Matches(binding.Hotkey, virtualKey, _pressedKeys))
@@ -405,17 +421,6 @@ public sealed class InputMappingEngine : IDisposable
         if (IsWasdKey(virtualKey))
         {
             UpdateJoystickBindings();
-        }
-        
-        if (_profile is not null && _cameraMouseLook.IsActive)
-        {
-            var cameraKey = _hotkeyParser.ToVirtualKey(_profile.Camera.ActivationHotkey);
-            if (cameraKey == virtualKey)
-            {
-                _cameraMouseLook.Stop();
-                _mouseHook.CaptureMovement=false;
-                _mouseHook.ResetMovementTracking();
-            }
         }
         
         // Check if any active MouseArea bindings are released by this virtual key
@@ -643,6 +648,13 @@ public sealed class InputMappingEngine : IDisposable
 
     private long CurrentGeneration => _targetSession.Current?.Generation ?? 0;
 
+    private void OnCameraActiveChanged(object? sender, bool active)
+    {
+        if (active) return;
+        _mouseHook.CaptureMovement = false;
+        _mouseHook.ResetMovementTracking();
+    }
+
     private bool TryScalePointToTarget(double x, double y, out PhysicalScreenPoint point)
     {
         point = default;
@@ -701,6 +713,7 @@ public sealed class InputMappingEngine : IDisposable
         _mouseHook.ShouldSuppressButton = null;
         _keyboardHook.CaptureGeneration = null;
         _mouseHook.CaptureGeneration = null;
+        _cameraMouseLook.ActiveChanged -= OnCameraActiveChanged;
         if (_activationMonitor is not null) _activationMonitor.ActivationChanged -= OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated -= OnTargetSessionInvalidated;
         _keyboardHook.Stop();

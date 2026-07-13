@@ -90,7 +90,8 @@ public partial class App : System.Windows.Application
                 provider.GetRequiredService<TouchEngine>(),
                 provider.GetRequiredService<ILogger<CameraMouseLookService>>(),
                 provider.GetRequiredService<IMouseCursorController>(), provider.GetRequiredService<TimeProvider>(),
-                provider.GetRequiredService<TargetWindowSessionManager>());
+                provider.GetRequiredService<TargetWindowSessionManager>(),
+                provider.GetRequiredService<TouchScheduler>());
             provider.GetRequiredService<IRelativeMouseInputSource>().Moved += camera.OnMouseMove;
             return camera;
         });

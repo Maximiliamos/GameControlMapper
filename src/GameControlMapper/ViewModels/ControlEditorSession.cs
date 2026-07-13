@@ -50,7 +50,7 @@ public sealed class ControlEditorSession : ObservableObject
         new(BindingKind.DoubleTap, "◉", "Двойное касание", "Два быстрых касания подряд"),
         new(BindingKind.Swipe, "↔", "Свайп", "Горизонтальный жест слева направо"),
         new(BindingKind.Joystick, "✣", "Движение WASD", "Экранный джойстик для движения"),
-        new(BindingKind.Aim, "⌖", "Обзор камерой", "Удержание Ctrl и движение мыши"),
+        new(BindingKind.Aim, "⌖", "Обзор камерой", "Ctrl включает обзор, повторный Ctrl возвращает мышь"),
         new(BindingKind.MouseArea, "◫", "Кнопка мыши", "Удерживаемое касание по кнопке мыши")
     ];
 

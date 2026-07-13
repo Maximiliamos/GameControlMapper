@@ -42,12 +42,12 @@ public sealed class MapperProfile
                 MaxSpeed = 14,
                 AnchorX = 960,
                 AnchorY = 540,
-                DragRadius = 140
+                DragRadius = 220
             },
             Bindings =
             [
                 new ControlBinding { Name = "Движение", Hotkey = "WASD", X = 42, Y = 864, Width = 190, Height = 190, Kind = BindingKind.Joystick, Color = "#4CC9F0", Comment = "Экранный джойстик: W — вперёд, A/D — поворот, S — назад." },
-                new ControlBinding { Name = "Камера", Hotkey = "LeftCtrl", X = 910, Y = 490, Width = 100, Height = 100, Kind = BindingKind.Aim, Color = "#8B5CF6", Opacity = 0.28, Comment = "Удерживайте Ctrl и двигайте мышь для обзора камеры." },
+                new ControlBinding { Name = "Камера", Hotkey = "LeftCtrl", X = 910, Y = 490, Width = 100, Height = 100, Kind = BindingKind.Aim, Color = "#8B5CF6", Opacity = 0.28, Comment = "Нажмите Ctrl для обзора камерой; нажмите Ctrl ещё раз, чтобы вернуть мышь." },
                 new ControlBinding { Name = "Огонь", Hotkey = "MouseLeft", X = 1684, Y = 882, Width = 112, Height = 112, Kind = BindingKind.MouseArea, Color = "#FF6B6B", Comment = "Левая кнопка мыши удерживает правую экранную кнопку огня." },
                 new ControlBinding { Name = "Прицел", Hotkey = "MouseRight", X = 1537, Y = 988, Width = 100, Height = 92, Kind = BindingKind.MouseArea, Color = "#FFD166", Comment = "Правая кнопка мыши удерживает экранную кнопку снайперского прицела." },
                 new ControlBinding { Name = "Снаряд 1", Hotkey = "1", X = 1627, Y = 987, Width = 56, Height = 56, Kind = BindingKind.Tap, Color = "#60A5FA", Comment = "Первый тип снаряда в нижнем ряду." },
