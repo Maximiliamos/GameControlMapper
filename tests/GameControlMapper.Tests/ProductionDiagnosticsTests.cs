@@ -52,7 +52,15 @@ public sealed class ProductionDiagnosticsTests
  [Fact]public void DiagnosticExport_RedactsUserPaths(){var p=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)+"\\secret.txt";Assert.StartsWith("%USERPROFILE%",FileLogSink.Redact(p));}
  [Fact]public async Task DiagnosticExport_IncludesRecentLogs(){using var f=new F();f.Log.Write(DateTimeOffset.Now,"I","T","recent-marker");var z=await f.Export();Assert.Contains("recent-marker",ReadAll(z));}
  [Fact]public async Task DiagnosticExport_FailureDoesNotDamageLogs(){using var f=new F();f.Log.Write(DateTimeOffset.Now,"I","T","keep");f.Log.Flush();await Assert.ThrowsAnyAsync<Exception>(()=>f.Exporter.ExportAsync(f.Dir));Assert.Contains("keep",File.ReadAllText(f.Log.CurrentPath));}
- [Fact]public void Shutdown_WhenLoggerFails_StillCompletes()=>FileLogger_WriteFailureDoesNotCrashCaller();
+ [Fact]public async Task DiagnosticExportDuringRealLogRotation_CompletesWithoutCorruption()
+ {
+  using var fixture=new F(512);var archives=new System.Collections.Concurrent.ConcurrentBag<string>();
+  var writer=Task.Run(()=>{for(var i=0;i<500;i++)fixture.Log.Write(DateTimeOffset.Now,"Information","Session",$"safe-session-event-{i:D4}-"+new string('x',80));});
+  var exporters=Enumerable.Range(0,8).Select(async _=>{var archive=await fixture.Export();archives.Add(archive);}).ToArray();
+  await Task.WhenAll(exporters.Append(writer));fixture.Log.Flush();
+  try{Assert.All(archives,path=>{Assert.True(File.Exists(path));Assert.NotEmpty(Entries(path));_ = ReadAll(path);});}
+  finally{foreach(var path in archives)File.Delete(path);}
+ }
  [Fact]public void SessionLogging_DoesNotLogEverySchedulerFrame(){var s=new MappingSessionDiagnostics();s.Start();s.Stop("stop",true,0);Assert.Equal("stop",s.Last.StopReason);}
  private static ILogger Logger(F fixture)=>new AppLoggerProvider(new AppLogSink(),fixture.Log).CreateLogger("GameControlMapper.Tests.Privacy");
  private static string ReadLog(F fixture)=>File.Exists(fixture.Log.CurrentPath)?File.ReadAllText(fixture.Log.CurrentPath):string.Empty;

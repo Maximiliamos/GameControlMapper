@@ -9,8 +9,6 @@ namespace GameControlMapper.Tests;
 public sealed class TargetWindowGeometryMonitorTests
 {
     [Fact] public void SchedulerFrame_DoesNotCallGeometryProvider() { var p=new CountingProvider(); var m=new TargetWindowSessionManager(p,NullLogger<TargetWindowSessionManager>.Instance); m.TryStart(1,new(100,100)); for(var i=0;i<100;i++) Assert.True(m.ValidateActiveSession()); Assert.Equal(1,p.Count); }
-    [Fact] public void StableWindow_ReusesCachedGeometrySnapshot() => SchedulerFrame_DoesNotCallGeometryProvider();
-    [Fact] public void GeometryMonitor_PollsAtBoundedFrequency() => Assert.Equal(20,1000/50);
 
     [Fact]
     public void LocationChangeEvent_TriggersImmediateValidation()
@@ -23,7 +21,7 @@ public sealed class TargetWindowGeometryMonitorTests
     [Fact] public void MinimizeEvent_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsIconic",0,"minimized"));
     [Fact] public void DestroyedWindow_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsWindow",0,"destroyed"));
     [Fact] public void HiddenWindow_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsWindowVisible",0,"hidden"));
-    [Fact] public void MissedNativeEvent_IsDetectedByFallbackPolling()=>Assert.Equal(TimeSpan.FromMilliseconds(50),TimeSpan.FromSeconds(1)/20);
+    [Fact] public void MissedNativeEvent_IsDetectedByFallbackPolling(){using var fixture=new Fixture();fixture.Track(Session(1));fixture.Provider.Rect=new(0,0,101,100);Assert.True(SpinWait.SpinUntil(()=>fixture.Invalidations.Count==1,TimeSpan.FromSeconds(1)));}
 
     [Fact]
     public void RepeatedLocationEvents_AreCoalesced()
@@ -38,7 +36,6 @@ public sealed class TargetWindowGeometryMonitorTests
         using var fixture=new Fixture();fixture.Track(Session(1));fixture.Provider.Rect=new(0,0,101,100);fixture.Provider.Block=true;fixture.Events.Raise(10);Assert.True(fixture.Provider.Entered.Wait(TimeSpan.FromSeconds(1)));fixture.Monitor.Stop(1);fixture.Provider.Release.Set();Thread.Sleep(30);Assert.Empty(fixture.Invalidations);
     }
 
-    [Fact] public void GeometryChangeConcurrentWithFocusLoss_UsesOneStopTask()=>GeometryChangeConcurrentWithManualStop_SendsOneUp();
 
     [Fact]
     public void LateGeometryNotification_FromOldGeneration_IsIgnored()
@@ -73,7 +70,6 @@ public sealed class TargetWindowGeometryMonitorTests
 
     [Fact] public void NewSessionAfterWindowMove_UsesFreshSnapshot() { var p=new CountingProvider(); var m=new TargetWindowSessionManager(p,NullLogger<TargetWindowSessionManager>.Instance); var a=m.TryStart(1,new(10,10)).Session; p.Rect=new(4,5,20,20); var b=m.TryStart(1,new(10,10)).Session; Assert.NotEqual(a!.ClientRect,b!.ClientRect); }
     [Fact] public void InvalidSnapshot_FailsClosed()=>Assert.False(new TargetWindowSession(1,new(1,1),CoordinateScaleMode.Stretch,new(0,0,1,1),1,1,false).IsActive);
-    [Fact] public void GeometryReadFailure_DoesNotCauseLogSpam()=>GeometryCallbackException_IsContained();
 
     private static void AssertInvalidated(Action<CountingProvider> change)
     {

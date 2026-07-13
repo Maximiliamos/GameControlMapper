@@ -47,6 +47,17 @@ public sealed class CameraMouseLookServiceTests
     [Fact] public void CursorControllerFailure_FailsClosed(){var c=new FakeCursor{FailHide=true};using var f=new F(c,false);Assert.False(f.Camera.Start(new(),500,500));Assert.False(f.Camera.IsActive);Assert.True(c.Visible);}
     [Fact] public void CursorPositionFailure_DoesNotAffectRelativeCamera(){var c=new FakeCursor{FailSet=true};using var f=new F(c);f.Real(5,0);Assert.True(f.Camera.IsActive);Assert.Equal(0,c.SetCount);}
     [Fact] public void CameraDoesNotTouchCursorWhenMappingInactive(){var c=new FakeCursor();var contacts=MakeContacts();using var camera=new CameraMouseLookService(new(NullLogger<TouchEngine>.Instance,contacts),NullLogger<CameraMouseLookService>.Instance,c,TimeProvider.System,new TargetWindowSessionManager(new FailedGeometry(),NullLogger<TargetWindowSessionManager>.Instance));Assert.False(camera.Start(new(),1,1));Assert.Equal(0,c.SetCount);Assert.Equal(0,c.HideCount);}
+    [Fact] public void CameraSoak_RepeatedProductionStartMoveStop_RestoresCursorState()
+    {
+        using var fixture=new F();
+        for(var cycle=0;cycle<500;cycle++)
+        {
+            fixture.Real(5,2);fixture.Camera.Stop();fixture.Flush();
+            Assert.True(fixture.Cursor.Visible);Assert.Empty(fixture.Contacts.ActiveContacts);
+            if(cycle<499)Assert.True(fixture.Camera.Start(new(){Smooth=0,MaxSpeed=100,DragRadius=500},500,500));
+        }
+        Assert.Equal(500,fixture.Cursor.RestoreVisibleCount);
+    }
 
     private static void AssertRestored(F f){Assert.True(f.Cursor.Visible);Assert.Equal(f.Cursor.Original,f.Cursor.Position);Assert.Equal(f.Cursor.OriginalClip,f.Cursor.Clip);}
     private static void AssertNoOrphanFrames(IEnumerable<TouchFrameSnapshot> frames){var active=new HashSet<int>();foreach(var contact in frames.SelectMany(frame=>frame.Contacts)){if(contact.State==TouchState.Down)Assert.True(active.Add(contact.ContactId));else if(contact.State==TouchState.Update)Assert.Contains(contact.ContactId,active);else if(contact.State==TouchState.Up)Assert.True(active.Remove(contact.ContactId));}Assert.Empty(active);}

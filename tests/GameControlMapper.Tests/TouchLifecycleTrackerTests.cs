@@ -19,7 +19,7 @@ public sealed class TouchLifecycleTrackerTests
  [Fact]public void Export_WithNoActiveContacts_IsPass(){Assert.True(N().Export("x","w",96,1,"g").Passed);}
  [Fact]public void Export_WithActiveContacts_IsFail(){Assert.False(Down().Export("x","w",96,1,"g").Passed);}
  [Fact]public void ContactCoordinates_ArePreserved(){var t=N();t.Process(1,12.5,18.25,HarnessTouchState.Down);Assert.Equal((12.5,18.25),(t.ActiveContacts[1].X,t.ActiveContacts[1].Y));}
- [Fact]public void NegativeScreenOrigin_DoesNotChangeClientCoordinates()=>ContactCoordinates_ArePreserved();
+ [Fact]public void NegativeScreenCoordinates_ArePreserved(){var tracker=N();tracker.Process(1,-1919.5,-240.25,HarnessTouchState.Down);Assert.Equal((-1919.5,-240.25),(tracker.ActiveContacts[1].X,tracker.ActiveContacts[1].Y));}
  [Fact]public void TenConcurrentContacts_AreAccepted(){var t=N();for(var i=0;i<10;i++)t.Process(i,i,i,HarnessTouchState.Down);Assert.Equal(10,t.ActiveContacts.Count);}
  [Fact]public void EleventhContact_IsRecordedWithoutCrashing(){var t=N();for(var i=0;i<11;i++)t.Process(i,i,i,HarnessTouchState.Down);Assert.Equal(11,t.ActiveContacts.Count);Assert.Equal(11,t.MaximumConcurrentContacts);}
  private static TouchLifecycleTracker N()=>new();private static TouchLifecycleTracker Down(){var t=N();t.Process(1,2,3,HarnessTouchState.Down);return t;}

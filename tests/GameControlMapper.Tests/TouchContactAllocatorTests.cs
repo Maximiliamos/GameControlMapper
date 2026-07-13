@@ -23,12 +23,8 @@ public sealed class TouchContactAllocatorTests
     [Fact] public void TwoMouseAreas_DoNotShareContactId()=>AssertOwnersUnique("mouse:a","mouse:b");
     [Fact] public void CameraAndJoystick_DoNotConflict()=>AssertOwnersUnique("camera","joystick");
     [Fact] public void CameraAndMouseArea_DoNotConflict()=>AssertOwnersUnique("camera","mouse");
-    [Fact] public void TenOrdinaryBindings_CanBeActive()=>Allocator_UsesFullBackendCapacity();
-    [Fact] public void CapacityFailure_DoesNotCreateTouchContact()=>Allocator_RejectsEleventhConcurrentContact();
     [Fact] public void CapacityFailure_DoesNotLeaveSuppressionStuck(){var a=Full();Assert.Null(a.TryAcquire(1,"rejected"));Assert.Equal(10,a.ActiveLeases.Count);}
     [Fact] public void Stop_ReleasesAllAllocatorLeases(){var a=Full();a.Reset(2);Assert.Empty(a.ActiveLeases);}
-    [Fact] public void FocusLoss_ReleasesAllAllocatorLeases()=>Stop_ReleasesAllAllocatorLeases();
-    [Fact] public void GeometryInvalidation_ReleasesAllAllocatorLeases()=>Stop_ReleasesAllAllocatorLeases();
     [Fact] public void FailedFinalUp_QuarantinesLease(){var a=New();var l=a.TryAcquire(1,"a")!;a.QuarantineFailedUp([l.ContactId]);Assert.Equal(TouchLeaseState.Quarantined,l.State);}
     [Fact] public void NewSession_StartsWithValidAllocatorState(){var a=Full();a.Reset(2);Assert.NotNull(a.TryAcquire(2,"new"));}
     [Fact] public void LateGestureCompletion_CannotReuseReleasedLease(){var a=New(1);var old=a.TryAcquire(1,"old")!;a.Reset(2);a.TryAcquire(2,"new");Assert.False(a.RequestRelease(old));}

@@ -32,6 +32,19 @@ public sealed class WindowCoordinateIntegrationTests
     [Fact]public void SupportedTap_IsStillSuppressedWhileMappingActive(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);Assert.True(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));}
     [Fact]public async Task SuppressionIsDeniedDuringStop(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stop=f.Mapping.StopAsync("test stop");Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);await stop;}
     [Fact]public async Task SuppressionIsDeniedImmediatelyOnFocusLoss(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stop=f.Mapping.StopAsync("focus loss");Assert.False(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));await stop;}
+    [Fact]public void ActivationMonitorFocusLoss_ReleasesContactsAndFailsClosed()
+    {
+        using var fixture=new Fixture(new(0,0,1000,500));fixture.StartJoystick();Assert.True(fixture.Backend.WaitForState(TouchState.Down));
+        fixture.ActivationNative.ForegroundRoot=2;fixture.ActivationNative.ForegroundProcessId=2;fixture.ActivationNative.Raise();
+        Assert.True(SpinWait.SpinUntil(()=>!fixture.Mapping.IsActive,TimeSpan.FromSeconds(2)));
+        Assert.True(fixture.Backend.WaitForState(TouchState.Up));Assert.False(fixture.Mapping.CurrentInputPermission.AllowSuppression);Assert.Equal("focus loss",fixture.Diagnostics.Last.StopReason);
+    }
+    [Fact]public void ActivationMonitorTargetPidChange_ReleasesContactsAndFailsClosed()
+    {
+        using var fixture=new Fixture(new(0,0,1000,500));fixture.StartJoystick();Assert.True(fixture.Backend.WaitForState(TouchState.Down));
+        fixture.ActivationNative.ForegroundProcessId=99;fixture.ActivationNative.Raise();
+        Assert.True(SpinWait.SpinUntil(()=>!fixture.Mapping.IsActive,TimeSpan.FromSeconds(2)));Assert.True(fixture.Backend.WaitForState(TouchState.Up));Assert.False(fixture.Mapping.CurrentInputPermission.AllowMappedInput);
+    }
     [Fact]public async Task SuppressionIsDeniedForStaleGeneration(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stale=f.Mapping.CurrentInputPermission.Generation-1;f.GeneratedPress(Key.Q,stale);await Task.Delay(75);Assert.Empty(f.Backend.Contacts(TouchState.Down));}
 
     [Theory]
@@ -323,13 +336,17 @@ public sealed class WindowCoordinateIntegrationTests
         public InputMappingEngine Mapping { get; }
         public MapperProfile Profile { get; }
         public MappingSessionDiagnostics Diagnostics { get; }=new();
+        public FakeActivationNative ActivationNative { get; }=new();
+        public TargetWindowActivationMonitor ActivationMonitor { get; }
+        private readonly TargetWindowGeometryMonitor _geometryMonitor;
 
         public Fixture(PhysicalClientRect rect)
         {
             Geometry = new MutableGeometryProvider(rect);
             var native = new FakeWindowNative();
-            var monitor = new TargetWindowGeometryMonitor(Geometry, native, GeometryEvents, TimeProvider.System);
-            Session = new TargetWindowSessionManager(Geometry, NullLogger<TargetWindowSessionManager>.Instance, geometryMonitor: monitor);
+            _geometryMonitor = new TargetWindowGeometryMonitor(Geometry, native, GeometryEvents, TimeProvider.System);
+            ActivationMonitor=new TargetWindowActivationMonitor(ActivationNative,NullLogger<TargetWindowActivationMonitor>.Instance);
+            Session = new TargetWindowSessionManager(Geometry, NullLogger<TargetWindowSessionManager>.Instance,native,ActivationMonitor,_geometryMonitor);
             Contacts = new ContactManager(NullLogger<ContactManager>.Instance, new TouchCapabilities(10, true, false, true));
             TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Contacts);
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Contacts, Backend, new FrameContext(), Session);
@@ -342,7 +359,7 @@ public sealed class WindowCoordinateIntegrationTests
                 MouseHook,
                 Camera,
                 TouchEngine, Scheduler, new HotkeyParser(), Session,
-                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,sessionDiagnostics:Diagnostics,startNativeHooks:false);
+                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,ActivationMonitor,sessionDiagnostics:Diagnostics,startNativeHooks:false);
             Profile = MapperProfile.CreateDefault();
             Profile.ResolutionWidth = 1000;
             Profile.ResolutionHeight = 500;
@@ -439,6 +456,8 @@ public sealed class WindowCoordinateIntegrationTests
         {
             Mapping.Dispose();
             Scheduler.Dispose();
+            ActivationMonitor.Dispose();
+            _geometryMonitor.Dispose();
         }
     }
 
@@ -456,6 +475,15 @@ public sealed class WindowCoordinateIntegrationTests
         public bool GetClientRect(nint h, out NativeClientRect r) { r = new(0,0,1,1); return true; }
         public bool ClientToScreen(nint h, ref PhysicalScreenPoint p) => true; public int GetLastError() => 0;
         public uint GetWindowProcessId(nint h) => 1;
+        public nint GetAncestor(nint h,uint flags)=>1;
+    }
+
+    private sealed class FakeActivationNative:ITargetWindowActivationNativeAdapter
+    {
+        private Action<nint>? _callback;public nint ForegroundRoot{get;set;}=1;public uint ForegroundProcessId{get;set;}=1;
+        public nint GetForegroundWindow()=>ForegroundRoot;public nint GetRootWindow(nint hwnd)=>ForegroundRoot;public uint GetProcessId(nint hwnd)=>ForegroundProcessId;
+        public bool IsWindow(nint hwnd)=>hwnd!=0;public bool IsIconic(nint hwnd)=>false;
+        public nint InstallForegroundHook(Action<nint> callback){_callback=callback;return 1;}public void UninstallForegroundHook(nint hook){_callback=null;}public void Raise()=>_callback?.Invoke(ForegroundRoot);
     }
 
     private sealed class MutableGeometryProvider : IGameWindowGeometryProvider
