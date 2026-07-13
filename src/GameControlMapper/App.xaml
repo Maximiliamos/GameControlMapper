@@ -6,6 +6,7 @@
         <converters:HexBrushConverter x:Key="HexBrushConverter" />
         <converters:BooleanLabelConverter x:Key="BooleanLabelConverter" />
         <converters:BindingKindLabelConverter x:Key="BindingKindLabelConverter" />
+        <converters:FlexibleDoubleConverter x:Key="FlexibleDoubleConverter" />
 
         <Color x:Key="ShellBackgroundColor">#10131A</Color>
         <Color x:Key="PanelBackgroundColor">#171B24</Color>

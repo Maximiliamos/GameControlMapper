@@ -517,8 +517,8 @@ public sealed class MainViewModel : ObservableObject
         profile.ResolutionHeight = 1080;
         profile.Camera.ActivationHotkey = "LeftCtrl";
         profile.Camera.UseMouseDrag = true;
-        profile.Camera.SensitivityX = 1.0;
-        profile.Camera.SensitivityY = 1.0;
+        profile.Camera.SensitivityX = 0.5;
+        profile.Camera.SensitivityY = 0.5;
         profile.Camera.DeadZone = 0;
         profile.Camera.Smooth = 0;
         profile.Camera.MaxSpeed = 64;

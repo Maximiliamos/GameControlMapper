@@ -9,6 +9,9 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewKeyUp="Window_PreviewKeyUp"
+        PreviewMouseDown="Window_PreviewMouseDown"
         KeyDown="Window_KeyDown">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -291,13 +294,23 @@
                              ToolTip="Короткое понятное название элемента" />
 
                     <TextBlock Text="Клавиша или кнопка мыши" Foreground="#AFC0D5" />
-                    <TextBox x:Name="HotkeyTextBox"
-                             Text="{Binding SelectedBinding.Hotkey, UpdateSourceTrigger=PropertyChanged}"
-                             IsReadOnly="{Binding SelectedBinding.IsHotkeyReadOnly}"
-                             GotKeyboardFocus="HotkeyTextBox_GotKeyboardFocus"
-                             PreviewKeyDown="HotkeyTextBox_PreviewKeyDown"
-                             ToolTip="Щёлкните поле и нажмите нужную клавишу. Для мыши: MouseLeft, MouseRight или MouseMiddle." />
-                    <TextBlock Text="Щёлкните поле и нажмите клавишу. Для мыши можно ввести MouseLeft или MouseRight."
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="RecordHotkeyButton"
+                                DockPanel.Dock="Right"
+                                Style="{StaticResource CompactButton}"
+                                Width="78"
+                                Content="● REC"
+                                IsEnabled="{Binding SelectedBinding.CanEditHotkey}"
+                                Click="RecordHotkeyButton_Click"
+                                ToolTip="Нажмите REC, затем нужную клавишу или кнопку мыши" />
+                        <TextBox x:Name="HotkeyTextBox"
+                                 Text="{Binding SelectedBinding.Hotkey, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="{Binding SelectedBinding.IsHotkeyReadOnly}"
+                                 GotKeyboardFocus="HotkeyTextBox_GotKeyboardFocus"
+                                 PreviewKeyDown="HotkeyTextBox_PreviewKeyDown"
+                                 ToolTip="Нажмите REC, затем нужную клавишу. Для мыши можно использовать кнопки ниже." />
+                    </DockPanel>
+                    <TextBlock Text="Нажмите REC, затем клавишу. Для сочетания удерживайте Ctrl, Shift или Alt."
                                Foreground="#8395AD"
                                FontSize="11"
                                TextWrapping="Wrap"

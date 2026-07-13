@@ -9,6 +9,9 @@
         MinHeight="740"
         Background="{StaticResource ShellBackgroundBrush}"
         Foreground="{StaticResource TextBrush}"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewKeyUp="Window_PreviewKeyUp"
+        PreviewMouseDown="Window_PreviewMouseDown"
         KeyDown="Window_KeyDown">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -331,23 +334,25 @@
                                            Margin="0,0,0,8" />
                                 <TextBlock Text="Горизонтальная чувствительность" />
                                 <DockPanel>
-                                    <TextBox DockPanel.Dock="Right" Width="58"
-                                             Text="{Binding CurrentProfile.Camera.SensitivityX, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox DockPanel.Dock="Right" Width="72"
+                                             Text="{Binding CurrentProfile.Camera.SensitivityX, Converter={StaticResource FlexibleDoubleConverter}, UpdateSourceTrigger=LostFocus}" />
                                     <Slider Minimum="0.1" Maximum="3" TickFrequency="0.05"
+                                            IsSnapToTickEnabled="True"
                                             Value="{Binding CurrentProfile.Camera.SensitivityX}"
-                                            ToolTip="1,0 — движение камеры один к одному с движением мыши" />
+                                            ToolTip="Можно ввести 0,5 или 0.5. Значение 1,0 соответствует движению один к одному." />
                                 </DockPanel>
                                 <TextBlock Text="Вертикальная чувствительность" Margin="0,6,0,0" />
                                 <DockPanel>
-                                    <TextBox DockPanel.Dock="Right" Width="58"
-                                             Text="{Binding CurrentProfile.Camera.SensitivityY, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox DockPanel.Dock="Right" Width="72"
+                                             Text="{Binding CurrentProfile.Camera.SensitivityY, Converter={StaticResource FlexibleDoubleConverter}, UpdateSourceTrigger=LostFocus}" />
                                     <Slider Minimum="0.1" Maximum="3" TickFrequency="0.05"
+                                            IsSnapToTickEnabled="True"
                                             Value="{Binding CurrentProfile.Camera.SensitivityY}" />
                                 </DockPanel>
                                 <TextBlock Text="Сглаживание" Margin="0,6,0,0" />
                                 <DockPanel>
-                                    <TextBox DockPanel.Dock="Right" Width="58"
-                                             Text="{Binding CurrentProfile.Camera.Smooth, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox DockPanel.Dock="Right" Width="72"
+                                             Text="{Binding CurrentProfile.Camera.Smooth, Converter={StaticResource FlexibleDoubleConverter}, UpdateSourceTrigger=LostFocus}" />
                                     <Slider Minimum="0" Maximum="0.2" TickFrequency="0.01"
                                             Value="{Binding CurrentProfile.Camera.Smooth}"
                                             ToolTip="0 — прямой и наиболее отзывчивый обзор; увеличивайте понемногу, если движение кажется резким" />
@@ -378,8 +383,26 @@
                     </ComboBox>
 
                     <TextBlock Text="Клавиша или кнопка мыши" Foreground="{StaticResource MutedTextBrush}" />
-                    <TextBox Text="{Binding SelectedBinding.Hotkey, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Примеры: Q, Space, LeftCtrl, MouseLeft, MouseRight, WASD" />
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="RecordHotkeyButton"
+                                DockPanel.Dock="Right"
+                                Width="82"
+                                Content="● REC"
+                                IsEnabled="{Binding SelectedBinding.CanEditHotkey}"
+                                Click="RecordHotkeyButton_Click"
+                                ToolTip="Нажмите REC, затем нужную клавишу или кнопку мыши" />
+                        <TextBox x:Name="HotkeyTextBox"
+                                 Text="{Binding SelectedBinding.Hotkey, UpdateSourceTrigger=PropertyChanged}"
+                                 IsReadOnly="{Binding SelectedBinding.IsHotkeyReadOnly}"
+                                 GotKeyboardFocus="HotkeyTextBox_GotKeyboardFocus"
+                                 PreviewKeyDown="HotkeyTextBox_PreviewKeyDown"
+                                 ToolTip="Примеры: Q, Space, LeftCtrl, MouseLeft, MouseRight, WASD" />
+                    </DockPanel>
+                    <TextBlock Text="Нажмите REC, а затем нужную клавишу. Для сочетания удерживайте Ctrl, Shift или Alt."
+                               Foreground="{StaticResource MutedTextBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,-6,0,9" />
 
                     <UniformGrid Columns="2">
                         <StackPanel Margin="0,0,6,0">

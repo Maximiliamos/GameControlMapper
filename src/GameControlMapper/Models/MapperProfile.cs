@@ -35,8 +35,8 @@ public sealed class MapperProfile
             {
                 ActivationHotkey = "LeftCtrl",
                 UseMouseDrag = false,
-                SensitivityX = 1.0,
-                SensitivityY = 1.0,
+                SensitivityX = 0.5,
+                SensitivityY = 0.5,
                 DeadZone = 0,
                 Smooth = 0,
                 MaxSpeed = 64,

@@ -26,6 +26,8 @@ public partial class ControlEditorOverlayWindow : Window
     private bool _isSaving;
     private bool _allowCloseDuringSave;
     private bool _targetLost;
+    private bool _isRecordingHotkey;
+    private BindingViewModel? _recordingHotkeyBinding;
     private int _consecutiveTargetFailures;
 
     public ControlEditorOverlayWindow(
@@ -392,6 +394,22 @@ public partial class ControlEditorOverlayWindow : Window
         }
     }
 
+    private void RecordHotkeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isRecordingHotkey)
+        {
+            EndHotkeyRecording();
+            return;
+        }
+
+        if (_session.SelectedBinding is not { CanEditHotkey: true } binding) return;
+        _recordingHotkeyBinding = binding;
+        _isRecordingHotkey = true;
+        RecordHotkeyButton.Content = "Нажмите…";
+        HotkeyTextBox.Focus();
+        HotkeyTextBox.SelectAll();
+    }
+
     private void MouseHotkeyButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is System.Windows.Controls.Button { Tag: string hotkey } &&
@@ -446,6 +464,49 @@ public partial class ControlEditorOverlayWindow : Window
         textBox.Text = key.ToString();
         textBox.CaretIndex = textBox.Text.Length;
         e.Handled = true;
+    }
+
+    private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (!_isRecordingHotkey) return;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key is Key.None or Key.Clear) return;
+        if (HotkeyCaptureFormatter.IsModifier(key))
+        {
+            RecordHotkeyButton.Content = HotkeyCaptureFormatter.ModifierPrompt(Keyboard.Modifiers);
+            e.Handled = true;
+            return;
+        }
+
+        EndHotkeyRecording(HotkeyCaptureFormatter.FormatKey(key, Keyboard.Modifiers));
+        e.Handled = true;
+    }
+
+    private void Window_PreviewKeyUp(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (!_isRecordingHotkey) return;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (!HotkeyCaptureFormatter.IsModifier(key)) return;
+        EndHotkeyRecording(key.ToString());
+        e.Handled = true;
+    }
+
+    private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isRecordingHotkey || RecordHotkeyButton.IsMouseOver) return;
+        var hotkey = HotkeyCaptureFormatter.FormatMouse(e.ChangedButton, Keyboard.Modifiers);
+        if (hotkey is null) return;
+        EndHotkeyRecording(hotkey);
+        e.Handled = true;
+    }
+
+    private void EndHotkeyRecording(string? hotkey = null)
+    {
+        if (hotkey is not null && _recordingHotkeyBinding is { CanEditHotkey: true } binding)
+            binding.Hotkey = hotkey;
+        _recordingHotkeyBinding = null;
+        _isRecordingHotkey = false;
+        RecordHotkeyButton.Content = "● REC";
     }
 
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

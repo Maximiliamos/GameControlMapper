@@ -177,39 +177,35 @@ public sealed class CameraMouseLookService : IDisposable
         {
             // Preserve the final movement frame before lifting the old finger.
             await PumpFrameAsync(cancellationToken).ConfigureAwait(false);
-            lock (_gate)
-            {
-                if (!IsCurrentCycleLocked(previousLease, generation)) return;
-                _lease = null;
-                _touch.EndTouch(previousLease);
-            }
-
-            // The allocator releases a contact only after a successful Up frame.
-            await PumpFrameAsync(cancellationToken).ConfigureAwait(false);
-
             TouchContactLease? nextLease;
             lock (_gate)
             {
-                if (!_active || _disposed || generation != _generation) return;
-                nextLease = _touch.StartTouch(generation, "camera", _anchor.X, _anchor.Y);
+                if (!IsCurrentCycleLocked(previousLease, generation)) return;
+                // Acquire a different contact before lifting the old one. The next
+                // frame then contains old Up and new Down together, so the game
+                // never observes an empty camera frame during unlimited rotation.
+                nextLease = _touch.StartTouch(generation, "camera:handoff", _anchor.X, _anchor.Y);
                 if (nextLease is null)
                 {
-                    FailCycleLocked("Camera contact could not be reacquired after rebase.");
+                    _rebasing = false;
+                    _pendingDx = _pendingDy = 0;
+                    _lastTimestamp = _time.GetTimestamp();
+                    _logger.LogWarning("Camera contact handoff was postponed because no touch contact is available");
                     return;
                 }
 
+                _touch.EndTouch(previousLease);
                 _lease = nextLease;
                 _x = _anchor.X;
                 _y = _anchor.Y;
-                _vx = _vy = 0;
-                Interlocked.Increment(ref _rebaseCount);
             }
 
-            // Send Down at the anchor before applying movement accumulated during the reset.
+            // Send old Up and new Down atomically before applying accumulated movement.
             await PumpFrameAsync(cancellationToken).ConfigureAwait(false);
             lock (_gate)
             {
                 if (!_active || _disposed || generation != _generation || !ReferenceEquals(_lease, nextLease)) return;
+                Interlocked.Increment(ref _rebaseCount);
                 var pendingDx = _pendingDx;
                 var pendingDy = _pendingDy;
                 _pendingDx = _pendingDy = 0;
