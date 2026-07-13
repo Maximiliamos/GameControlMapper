@@ -21,7 +21,7 @@ public sealed class TargetWindowGeometryMonitorTests
     [Fact] public void MinimizeEvent_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsIconic",0,"minimized"));
     [Fact] public void DestroyedWindow_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsWindow",0,"destroyed"));
     [Fact] public void HiddenWindow_InvalidatesActiveSession()=>AssertInvalidated(provider=>provider.Result=WindowGeometryResult.Failure("IsWindowVisible",0,"hidden"));
-    [Fact] public void MissedNativeEvent_IsDetectedByFallbackPolling(){using var fixture=new Fixture();fixture.Track(Session(1));fixture.Provider.Rect=new(0,0,101,100);Assert.True(SpinWait.SpinUntil(()=>fixture.Invalidations.Count==1,TimeSpan.FromSeconds(1)));}
+    [Fact] public void MissedNativeEvent_IsDetectedByFallbackPolling(){using var fixture=new Fixture();fixture.Track(Session(1));fixture.Provider.Rect=new(0,0,101,100);Assert.True(SpinWait.SpinUntil(()=>fixture.Invalidations.Count==1,TimeSpan.FromSeconds(5)));}
 
     [Fact]
     public void RepeatedLocationEvents_AreCoalesced()

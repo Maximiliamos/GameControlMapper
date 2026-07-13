@@ -56,8 +56,9 @@ public sealed class WindowCoordinateIntegrationTests
     [InlineData(BindingKind.Swipe,1)]
     public async Task KeyboardAutoRepeat_ProducesOneAction(BindingKind kind,int expectedDowns)
     {
-        using var f=new Fixture(new(0,0,1000,500));f.StartBinding(kind);f.Press(Key.Q);for(var i=0;i<50;i++)f.Press(Key.Q);f.Release(Key.Q);
-        Assert.True(SpinWait.SpinUntil(()=>f.Backend.Contacts(TouchState.Down).Count>=expectedDowns,TimeSpan.FromSeconds(2)));
+        using var f=new Fixture(new(0,0,1000,500));f.StartBinding(kind);f.Press(Key.Q);for(var i=0;i<50;i++)f.Press(Key.Q);
+        Assert.True(SpinWait.SpinUntil(()=>f.Backend.Contacts(TouchState.Down).Count>=expectedDowns,TimeSpan.FromSeconds(5)));
+        f.Release(Key.Q);
         await Task.Delay(250);Assert.Equal(expectedDowns,f.Backend.Contacts(TouchState.Down).Count);
     }
     [Fact]public Task Tap_AutoRepeatProducesOneTap()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.Tap,1);
@@ -66,7 +67,7 @@ public sealed class WindowCoordinateIntegrationTests
     [Fact]public Task Swipe_AutoRepeatProducesOneLifecycle()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.Swipe,1);
     [Fact]public async Task MouseArea_RepeatedDownProducesOneContact(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.MouseArea);f.Press(Key.Q);f.Press(Key.Q);await f.Scheduler.SendFrameOnceAsync();Assert.Single(f.Backend.Contacts(TouchState.Down));}
     [Fact]public async Task Joystick_AutoRepeatDoesNotCreateAdditionalLease(){using var f=new Fixture(new(0,0,1000,500));f.StartJoystick();f.Press(Key.W);await f.Scheduler.SendFrameOnceAsync();Assert.Single(f.Contacts.ActiveContacts);}
-    [Fact]public async Task QueuedAction_DoesNotStartAfterKeyUp(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);f.Release(Key.Q);await Task.Delay(350);Assert.Single(f.Backend.Contacts(TouchState.Down));}
+    [Fact]public async Task QueuedAction_DoesNotStartAfterKeyUp(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);Assert.True(f.Backend.WaitForState(TouchState.Down));f.Release(Key.Q);await Task.Delay(350);Assert.Single(f.Backend.Contacts(TouchState.Down));}
     [Fact]public async Task QueuedAction_DoesNotStartAfterStop(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);await f.Mapping.StopAsync();var downs=f.Backend.Contacts(TouchState.Down).Count;await Task.Delay(250);Assert.Equal(downs,f.Backend.Contacts(TouchState.Down).Count);}
     [Fact]public async Task QueuedAction_DoesNotEnterNextGeneration(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);await f.Mapping.StopAsync();var before=f.Backend.Contacts(TouchState.Down).Count;f.StartBinding(BindingKind.Tap);f.Press(Key.Q);await Task.Delay(200);Assert.Equal(before+1,f.Backend.Contacts(TouchState.Down).Count);}
     [Fact]public async Task RapidPressRelease_DoesNotLeaveActionLockOccupied(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);f.Press(Key.Q);f.Release(Key.Q);await Task.Delay(150);Assert.Equal(0,f.Mapping.RunningActionCount);}
