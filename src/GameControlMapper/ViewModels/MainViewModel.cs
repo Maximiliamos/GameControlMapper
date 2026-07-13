@@ -97,7 +97,7 @@ public sealed class MainViewModel : ObservableObject
         get
         {
             var assembly=Assembly.GetEntryAssembly()??Assembly.GetExecutingAssembly();var info=assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion??assembly.GetName().Version?.ToString()??"unknown";
-            var commit=info.Split('+').LastOrDefault();return $"Beta {assembly.GetName().Version}"+(commit is {Length:>=7}?$" ({commit[..7]})":"");
+            var parts=info.Split('+',2);var productVersion=parts[0];var commit=parts.Length==2?parts[1]:null;return $"Beta {productVersion}"+(commit is {Length:>=7}?$" ({commit[..7]})":"");
         }
     }
 
