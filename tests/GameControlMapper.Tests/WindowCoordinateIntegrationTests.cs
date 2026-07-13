@@ -37,7 +37,9 @@ public sealed class WindowCoordinateIntegrationTests
         using var fixture=new Fixture(new(0,0,1000,500));fixture.StartJoystick();Assert.True(fixture.Backend.WaitForState(TouchState.Down));
         fixture.ActivationNative.ForegroundRoot=2;fixture.ActivationNative.ForegroundProcessId=2;fixture.ActivationNative.Raise();
         Assert.True(SpinWait.SpinUntil(()=>!fixture.Mapping.IsActive,TimeSpan.FromSeconds(2)));
-        Assert.True(fixture.Backend.WaitForState(TouchState.Up));Assert.False(fixture.Mapping.CurrentInputPermission.AllowSuppression);Assert.Equal("focus loss",fixture.Diagnostics.Last.StopReason);
+        Assert.True(fixture.Backend.WaitForState(TouchState.Up));Assert.False(fixture.Mapping.CurrentInputPermission.AllowSuppression);
+        Assert.True(SpinWait.SpinUntil(()=>fixture.Diagnostics.Last.StopReason is not null,TimeSpan.FromSeconds(2)));
+        Assert.Equal("focus loss",fixture.Diagnostics.Last.StopReason);
     }
     [Fact]public void ActivationMonitorTargetPidChange_ReleasesContactsAndFailsClosed()
     {
