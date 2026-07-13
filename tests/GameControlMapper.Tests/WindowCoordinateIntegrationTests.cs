@@ -57,6 +57,17 @@ public sealed class WindowCoordinateIntegrationTests
     [Fact]public async Task RapidPressRelease_DoesNotLeaveActionLockOccupied(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);f.Press(Key.Q);f.Release(Key.Q);await Task.Delay(150);Assert.Equal(0,f.Mapping.RunningActionCount);}
     [Fact]public async Task RepeatedInput_DoesNotGrowPendingTaskCount(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<10_000;i++)f.Press(Key.Q);Assert.InRange(f.Mapping.RunningActionCount,0,1);f.Release(Key.Q);await f.Mapping.StopAsync();}
 
+    [Fact]public void SchedulerFatalFailure_StopsMapping(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.False(f.Mapping.IsActive);}
+    [Fact]public void SchedulerFatalFailure_DisablesSuppression(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);Assert.False(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.W)));}
+    [Fact]public void SchedulerFatalFailure_StopsCamera(){using var f=new Fixture(new(0,0,1920,1080));f.StartCamera();f.Press(Key.LeftCtrl);f.Release(Key.LeftCtrl);f.Camera.OnMouseMove(10,0,f.Camera.Generation);Assert.True(f.Backend.WaitForState(TouchState.Down));f.Backend.ThrowNextFrame=true;f.Camera.OnMouseMove(10,0,f.Camera.Generation);Assert.True(SpinWait.SpinUntil(()=>!f.Mapping.IsActive,TimeSpan.FromSeconds(2)));Assert.False(f.Camera.IsActive);}
+    [Fact]public void SchedulerFatalFailure_AttemptsFinalUp(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.True(f.Backend.WaitForState(TouchState.Up));}
+    [Fact]public void SchedulerFatalFailure_ProducesStopReason(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.Equal("scheduler failure",f.Diagnostics.Last.StopReason);}
+    [Fact]public void SchedulerFatalFailure_DoesNotDeadlock(){using var f=new Fixture(new(0,0,1000,500));var started=DateTime.UtcNow;f.CauseSchedulerFailure();Assert.True(DateTime.UtcNow-started<TimeSpan.FromSeconds(3));}
+    [Fact]public async Task SchedulerFatalFailure_ConcurrentFocusLossUsesSingleStopTask(){using var f=new Fixture(new(0,0,1000,500));f.StartJoystick();Assert.True(f.Backend.WaitForState(TouchState.Down));f.Backend.ThrowNextFrame=true;f.Press(Key.D);var focusStop=f.Mapping.StopAsync("focus loss");await focusStop;Assert.False(f.Mapping.IsActive);Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);}
+    [Fact]public async Task SchedulerFatalFailure_DoesNotRestartWorkerAutomatically(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();var frames=f.Backend.FrameCount;f.Scheduler.Resume();await Task.Delay(50);Assert.Equal(frames,f.Backend.FrameCount);Assert.True(f.Scheduler.HasFatalFailure);}
+    [Fact]public async Task SchedulerFatalFailure_RejectsLateInput(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();var frames=f.Backend.FrameCount;f.Press(Key.W);await Task.Delay(50);Assert.Equal(frames,f.Backend.FrameCount);}
+    [Fact]public async Task SchedulerFatalFailure_IsRateLimitedInLogs(){using var f=new Fixture(new(0,0,1000,500));var raised=0;f.Scheduler.FatalSchedulerFailure+=(_,_)=>Interlocked.Increment(ref raised);f.CauseSchedulerFailure();f.Backend.ThrowNextFrame=true;await f.Scheduler.SendFrameOnceAsync();Assert.Equal(1,raised);}
+
     [Fact]
     public async Task CtrlPress_TogglesCameraAndCtrlReleaseKeepsItActive()
     {
@@ -312,6 +323,7 @@ public sealed class WindowCoordinateIntegrationTests
         public InputMappingEngine Mapping { get; }
         public MapperProfile Profile { get; }
         public RecordingInputSimulator Input { get; }
+        public MappingSessionDiagnostics Diagnostics { get; }=new();
 
         public Fixture(PhysicalClientRect rect)
         {
@@ -333,7 +345,7 @@ public sealed class WindowCoordinateIntegrationTests
                 Camera,
                 new XInputGamepadMapper(Input, NullLogger<XInputGamepadMapper>.Instance),
                 Input, new NullTouchSimulator(), TouchEngine, Scheduler, new HotkeyParser(), Session,
-                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance);
+                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,diagnostics:Diagnostics);
             Profile = MapperProfile.CreateDefault();
             Profile.ResolutionWidth = 1000;
             Profile.ResolutionHeight = 500;
@@ -404,6 +416,16 @@ public sealed class WindowCoordinateIntegrationTests
             method.Invoke(Mapping,[null,new GeneratedInputEvent(KeyInterop.VirtualKeyFromKey(key),generation)]);
         }
 
+        public void CauseSchedulerFailure()
+        {
+            StartJoystick();
+            if(!Backend.WaitForState(TouchState.Down))throw new TimeoutException("Initial joystick Down was not sent.");
+            Backend.ThrowNextFrame=true;
+            Press(Key.D);
+            if(!SpinWait.SpinUntil(()=>!Mapping.IsActive,TimeSpan.FromSeconds(2)))throw new TimeoutException("Mapping did not stop after scheduler failure.");
+            SpinWait.SpinUntil(()=>Diagnostics.Last.StopReason is not null,TimeSpan.FromSeconds(2));
+        }
+
         public void PressMouse(int virtualKey)
         {
             var method = typeof(InputMappingEngine).GetMethod("OnMouseButtonDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -452,9 +474,11 @@ public sealed class WindowCoordinateIntegrationTests
         private readonly List<TouchFrameSnapshot> _frames = [];
         public TouchCapabilities Capabilities { get; } = new(10, true, false, true);
         public int FrameCount { get { lock (_gate) return _frames.Count; } }
+        public bool ThrowNextFrame { get; set; }
         public bool Initialize() => true;
         public bool SendFrame(TouchFrame frame)
         {
+            if(ThrowNextFrame){ThrowNextFrame=false;throw new InvalidOperationException("Injected backend failure");}
             var contacts = frame.GetContacts().ToArray().Select(c => new TouchContactSnapshot(c.ContactId, c.X, c.Y, c.State)).ToArray();
             lock (_gate) _frames.Add(new(frame.FrameId, frame.Timestamp, contacts));
             return true;

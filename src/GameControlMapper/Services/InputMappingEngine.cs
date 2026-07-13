@@ -78,6 +78,7 @@ public sealed class InputMappingEngine : IDisposable
         _cameraMouseLook.ActiveChanged += OnCameraActiveChanged;
         if (_activationMonitor is not null) _activationMonitor.ActivationChanged += OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated += OnTargetSessionInvalidated;
+        _touchScheduler.FatalSchedulerFailure += OnFatalSchedulerFailure;
         if(startNativeHooks){_keyboardHook.Start();_mouseHook.Start();}
     }
 
@@ -223,6 +224,14 @@ public sealed class InputMappingEngine : IDisposable
     private void OnTargetSessionInvalidated(object? sender, EventArgs e)
     {
         _ = StopAsync("geometry invalidation");
+    }
+
+    private void OnFatalSchedulerFailure(object? sender,SchedulerFatalFailureEventArgs e)
+    {
+        Volatile.Write(ref _inputPermission,InputPermissionSnapshot.Denied);
+        _mouseHook.CaptureMovement=false;
+        _touchEngine.StopAcceptingContacts();
+        _=StopAsync("scheduler failure");
     }
 
     private long CaptureGeneration() => Volatile.Read(ref _inputPermission).Generation;
@@ -767,6 +776,7 @@ public sealed class InputMappingEngine : IDisposable
         _cameraMouseLook.ActiveChanged -= OnCameraActiveChanged;
         if (_activationMonitor is not null) _activationMonitor.ActivationChanged -= OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated -= OnTargetSessionInvalidated;
+        _touchScheduler.FatalSchedulerFailure -= OnFatalSchedulerFailure;
         _keyboardHook.Stop();
         _mouseHook.Stop();
         _gestureCancellation.Dispose();

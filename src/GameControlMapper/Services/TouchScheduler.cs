@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
 
+public sealed record SchedulerFatalFailureEventArgs(Exception Exception);
+
 public class TouchScheduler : IDisposable
 {
     private readonly ILogger<TouchScheduler> _logger;
@@ -20,6 +22,7 @@ public class TouchScheduler : IDisposable
     
     public event EventHandler? FrameSent;
     public event EventHandler? TargetSessionInvalidated;
+    public event EventHandler<SchedulerFatalFailureEventArgs>? FatalSchedulerFailure;
     
     private int _frameCount;
     private DateTime _lastFpsUpdate;
@@ -28,6 +31,8 @@ public class TouchScheduler : IDisposable
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private volatile bool _paused;
     private bool _disposed;
+    private int _fatalFailureRaised;
+    internal bool HasFatalFailure=>Volatile.Read(ref _fatalFailureRaised)!=0;
     public double CurrentFps
     {
         get => _currentFps;
@@ -140,7 +145,16 @@ public class TouchScheduler : IDisposable
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex) { _logger.LogError(ex, "Touch scheduler stopped unexpectedly"); }
+        catch (Exception ex) { SignalFatalFailure(ex); }
+    }
+
+    private void SignalFatalFailure(Exception exception)
+    {
+        _paused=true;
+        if(Interlocked.Exchange(ref _fatalFailureRaised,1)!=0)return;
+        _logger.LogCritical(exception,"Touch scheduler stopped unexpectedly; mapping will stop fail-closed");
+        try{FatalSchedulerFailure?.Invoke(this,new SchedulerFatalFailureEventArgs(exception));}
+        catch(Exception callbackError){_logger.LogError(callbackError,"Fatal scheduler callback failed");}
     }
 
     private Task SendFrameAsync(CancellationToken ct)
@@ -196,6 +210,7 @@ public class TouchScheduler : IDisposable
         {
             var failedUps=contacts.Where(c=>c.State==TouchState.Up).Select(c=>c.ContactId).ToArray();
             if(failedUps.Length>0){_allocator?.QuarantineFailedUp(failedUps);_manager.DiscardContacts(failedUps);_logger.LogError("Touch Up failed; contact IDs quarantined: {Ids}",string.Join(", ",failedUps));}
+            SignalFatalFailure(new InvalidOperationException("Touch backend rejected a scheduled frame."));
             return;
         }
         _manager.AdvanceSentContacts(contacts.Where(c => c.State is TouchState.Down or TouchState.Update));
