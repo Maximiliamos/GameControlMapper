@@ -459,15 +459,32 @@
                 BorderBrush="#273244"
                 BorderThickness="0,1,0,0"
                 Padding="12,4">
-            <Expander Header="Журнал работы и диагностика" IsExpanded="False">
-                <DockPanel Margin="0,6,0,4" Height="132">
+            <StackPanel>
+                <TextBlock Text="{Binding UiErrorMessage}"
+                           Foreground="#FCA5A5"
+                           TextWrapping="Wrap"
+                           Margin="0,2,0,4">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding UiErrorMessage}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Expander Header="Журнал работы и диагностика" IsExpanded="False">
+                    <DockPanel Margin="0,6,0,4" Height="132">
                     <Button DockPanel.Dock="Top" HorizontalAlignment="Right"
                             Style="{StaticResource CompactButton}"
                             Content="Копировать журнал"
                             Command="{Binding CopyLogsCommand}" />
                     <ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12" />
-                </DockPanel>
-            </Expander>
+                    </DockPanel>
+                </Expander>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

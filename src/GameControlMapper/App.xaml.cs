@@ -117,6 +117,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<ITargetWindowSessionValidator>(provider => provider.GetRequiredService<TargetWindowSessionManager>());
         services.AddSingleton<WindowCoordinateTransformer>();
         services.AddSingleton<DpiAwarenessDiagnostics>();
+        services.AddSingleton<IUiDispatcher>(_ => new WpfUiDispatcher(Current.Dispatcher));
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MainWindow>();
         services.AddSingleton<TouchDebugViewModel>();

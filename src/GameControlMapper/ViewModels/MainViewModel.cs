@@ -45,14 +45,20 @@ public sealed class MainViewModel : ObservableObject
         Logs = logSink.Entries;
         BindingKinds = Enum.GetValues<BindingKind>().Where(k=>k is not BindingKind.Macro and not BindingKind.Sequence).ToArray();
 
-        NewProfileCommand = new AsyncRelayCommand(_ => NewProfileAsync());
-        LoadProfileCommand = new AsyncRelayCommand(parameter => LoadProfileAsync(parameter as string), parameter => parameter is string);
-        SaveProfileCommand = new AsyncRelayCommand(_ => SaveProfileAsync());
-        DeleteProfileCommand = new AsyncRelayCommand(_ => DeleteProfileAsync(), _ => SelectedProfileName is not null);
-        ImportProfileCommand = new AsyncRelayCommand(_ => ImportProfileAsync());
-        ExportProfileCommand = new AsyncRelayCommand(_ => ExportProfileAsync());
-        ExportDiagnosticsCommand = new AsyncRelayCommand(_ => ExportDiagnosticsAsync());
-        OpenBlitzXvmCommand = new AsyncRelayCommand(_ => OpenBlitzXvmAsync());
+        AsyncRelayCommand Command(
+            string name,
+            Func<object?, Task> execute,
+            Predicate<object?>? canExecute = null) =>
+            new(execute, canExecute, _logger, name, message => UiErrorMessage = message);
+
+        NewProfileCommand = Command("Create profile", _ => NewProfileAsync());
+        LoadProfileCommand = Command("Load profile", parameter => LoadProfileAsync(parameter as string), parameter => parameter is string);
+        SaveProfileCommand = Command("Save profile", _ => SaveProfileAsync());
+        DeleteProfileCommand = Command("Delete profile", _ => DeleteProfileAsync(), _ => SelectedProfileName is not null);
+        ImportProfileCommand = Command("Import profile", _ => ImportProfileAsync());
+        ExportProfileCommand = Command("Export profile", _ => ExportProfileAsync());
+        ExportDiagnosticsCommand = Command("Export diagnostics", _ => ExportDiagnosticsAsync());
+        OpenBlitzXvmCommand = Command("Open experimental XVM integration", _ => OpenBlitzXvmAsync());
         RefreshOlenemerStatsCommand = new RelayCommand(_ => RefreshOlenemerStats());
         AddBindingCommand = new RelayCommand(_ => AddBinding());
         DuplicateBindingCommand = new RelayCommand(_ => DuplicateSelected(), _ => SelectedBinding is not null);
@@ -60,12 +66,12 @@ public sealed class MainViewModel : ObservableObject
         CopyBindingCommand = new RelayCommand(_ => CopySelected(), _ => SelectedBinding is not null);
         PasteBindingCommand = new RelayCommand(_ => PasteBinding(), _ => _clipboardBinding is not null);
         CopyLogsCommand = new RelayCommand(_ => CopyLogs());
-        ActivateCommand = new AsyncRelayCommand(_ => ActivateMappingAsync());
-        DeactivateCommand = new AsyncRelayCommand(_ => DeactivateMappingAsync());
+        ActivateCommand = Command("Start mapping", _ => ActivateMappingAsync());
+        DeactivateCommand = Command("Stop mapping", _ => DeactivateMappingAsync());
         SelectAreaCommand = new RelayCommand(_ => SelectAreaRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         PickCenterCommand = new RelayCommand(_ => PickCenterRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         RefreshWindowsCommand = new RelayCommand(_ => RefreshTargetWindows());
-        OpenControlEditorCommand = new AsyncRelayCommand(_ => OpenControlEditorAsync());
+        OpenControlEditorCommand = Command("Open control editor", _ => OpenControlEditorAsync());
 
         _mappingEngine.ActiveChanged += (_, active) =>
         {
@@ -78,13 +84,18 @@ public sealed class MainViewModel : ObservableObject
         _mappingEngine.CameraControlActiveChanged += (_, active) => IsCameraControlActive = active;
         _mappingEngine.OverlayToggleRequested += (_, _) => RaiseOnUi(() => ToggleOverlayRequested?.Invoke(this, EventArgs.Empty));
         _mappingEngine.EditorRequested += (_, _) => RaiseOnUi(() => EditorRequested?.Invoke(this, EventArgs.Empty));
-        _ = InitializeAsync();
+        Initialization = InitializeSafelyAsync();
     }
 
     public ObservableCollection<string> Profiles { get; } = [];
     public ObservableCollection<BindingViewModel> Bindings { get; } = [];
     public ObservableCollection<string> Logs { get; }
     public ObservableCollection<GameWindowInfo> TargetWindows { get; }=[];
+    public Task Initialization { get; }
+    private string _uiErrorMessage = string.Empty;
+    private bool _initializationFailed;
+    public string UiErrorMessage { get => _uiErrorMessage; private set => SetProperty(ref _uiErrorMessage, value); }
+    public bool InitializationFailed { get => _initializationFailed; private set => SetProperty(ref _initializationFailed, value); }
     public IReadOnlyList<BindingKind> BindingKinds { get; }
     public IReadOnlyList<ApplicationCapability> Capabilities => ApplicationCapabilities.Beta.Items;
     public string BetaVersion
@@ -421,6 +432,41 @@ public sealed class MainViewModel : ObservableObject
                                   name.Equals("Основной — Tanks Blitz", StringComparison.OrdinalIgnoreCase))
                               ?? Profiles.FirstOrDefault();
         RefreshTargetWindows();
+    }
+
+    private async Task InitializeSafelyAsync()
+    {
+        await UiInitializationGuard.RunAsync(InitializeAsync, _logger, ex =>
+        {
+            InitializationFailed = true;
+            UiErrorMessage = "Хранилище профилей недоступно. Открыт временный локальный профиль; сохранение может не работать.";
+            LoadLocalFallbackProfile();
+        });
+    }
+
+    private void LoadLocalFallbackProfile()
+    {
+        var fallback = MapperProfile.CreateDefault("Временный локальный профиль");
+        EnsureCameraBinding(fallback);
+        CurrentProfile = fallback;
+        Profiles.Clear();
+        Profiles.Add(fallback.Name);
+        _selectedProfileName = fallback.Name;
+        OnPropertyChanged(nameof(SelectedProfileName));
+        Bindings.Clear();
+        foreach (var binding in fallback.Bindings)
+        {
+            Bindings.Add(new BindingViewModel(binding));
+        }
+        SelectedBinding = Bindings.FirstOrDefault();
+        _mappingEngine.SetProfile(fallback);
+        DeleteProfileCommand.RaiseCanExecuteChanged();
+    }
+
+    public void ReportUiFailure(string operation, Exception exception)
+    {
+        _logger.LogError(exception, "{Operation} failed", operation);
+        UiErrorMessage = "Не удалось выполнить действие. Подробности записаны в журнал.";
     }
 
     private void RefreshOlenemerStats()
