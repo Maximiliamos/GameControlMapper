@@ -16,7 +16,7 @@ public sealed class BetaCapabilityHardeningTests
     [Fact] public void UnsupportedMacro_IsRejectedWithoutTouch()=>AssertRejected(BindingKind.Macro);
     [Fact] public void UnsupportedSequence_IsRejectedWithoutTouch()=>AssertRejected(BindingKind.Sequence);
     [Fact] public void UnsupportedAction_DoesNotLeaveKeySuppressed()=>Assert.DoesNotContain("ExecuteBindingAsync(binding",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
-    [Fact] public void UnsupportedAction_LogsStructuredReason()=>Assert.Contains("UnsupportedInBeta: binding",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
+    [Fact] public void UnsupportedAction_IsRejectedByRuntimePolicy(){var policy=new RuntimeInputPolicy(Cap);Assert.False(policy.IsBindingKindSupported(BindingKind.Macro));Assert.False(policy.IsBindingKindSupported(BindingKind.Sequence));}
     [Fact] public void ProductionDi_UsesOnlyWindowsTouchBackend()=>Assert.Contains("AddSingleton<ITouchBackend, WindowsTouchBackend>",Source("src/GameControlMapper/App.xaml.cs"));
     [Fact] public void ProductionDi_DoesNotRegisterLegacyTouchSimulator()=>Assert.DoesNotContain("AddSingleton<ITouchSimulator",Source("src/GameControlMapper/App.xaml.cs"));
     [Fact] public void ProductionTouchPath_DoesNotUseFixedContacts()=>Assert.DoesNotContain("FixedContacts",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));

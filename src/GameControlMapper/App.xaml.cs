@@ -101,6 +101,7 @@ public partial class App : System.Windows.Application
             return camera;
         });
         services.AddSingleton(Models.ApplicationCapabilities.Beta);
+        services.AddSingleton<RuntimeInputPolicy>();
         services.AddSingleton<InputMappingEngine>();
         services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();

@@ -2,6 +2,7 @@ using GameControlMapper.Models;
 using Microsoft.Extensions.Logging;
 using System.Windows.Input;
 using GameControlMapper.Win32;
+using System.Collections.Frozen;
 
 namespace GameControlMapper.Services;
 
@@ -23,7 +24,7 @@ public sealed class InputMappingEngine : IDisposable
     private readonly HashSet<int> _pressedKeys = [];
     private readonly Dictionary<Guid, JoystickRuntimeState> _joysticks = [];
     private readonly Dictionary<Guid, MouseAreaRuntimeState> _activeMouseAreas = [];
-    private readonly Dictionary<Guid, SemaphoreSlim> _actionLocks = [];
+    private readonly HashSet<(Guid BindingId,long Generation)> _runningActions = [];
     private CancellationTokenSource _gestureCancellation = new();
     private Task<TouchShutdownResult>? _stopTask;
     private bool _disposed;
@@ -31,6 +32,8 @@ public sealed class InputMappingEngine : IDisposable
     private int _coordinateWarningLogged;
     private InputPermissionSnapshot _inputPermission = InputPermissionSnapshot.Denied;
     private readonly MappingSessionDiagnostics? _sessionDiagnostics;
+    private readonly RuntimeInputPolicy _runtimePolicy;
+    private readonly bool _requiresInstalledMouseHook;
     private string? _mappingSessionId;
     private string _stopReason="manual stop";
 
@@ -45,7 +48,8 @@ public sealed class InputMappingEngine : IDisposable
         TargetWindowSessionManager targetSession,
         WindowCoordinateTransformer windowCoordinateTransformer,
         ILogger<InputMappingEngine> logger,
-        ITargetWindowActivationMonitor? activationMonitor = null, ITouchContactAllocator? contactAllocator = null, MappingSessionDiagnostics? sessionDiagnostics = null)
+        ITargetWindowActivationMonitor? activationMonitor = null, ITouchContactAllocator? contactAllocator = null,
+        MappingSessionDiagnostics? sessionDiagnostics = null, RuntimeInputPolicy? runtimePolicy = null, bool startNativeHooks = true)
     {
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
@@ -60,6 +64,8 @@ public sealed class InputMappingEngine : IDisposable
         _activationMonitor = activationMonitor;
         _contactAllocator = contactAllocator ?? touchEngine.ContactAllocator;
         _sessionDiagnostics=sessionDiagnostics;
+        _runtimePolicy=runtimePolicy??new RuntimeInputPolicy(ApplicationCapabilities.Beta);
+        _requiresInstalledMouseHook=startNativeHooks;
 
         _keyboardHook.GeneratedKeyDown += OnGeneratedKeyDown;
         _keyboardHook.GeneratedKeyUp += OnGeneratedKeyUp;
@@ -72,16 +78,17 @@ public sealed class InputMappingEngine : IDisposable
         _cameraMouseLook.ActiveChanged += OnCameraActiveChanged;
         if (_activationMonitor is not null) _activationMonitor.ActivationChanged += OnActivationChanged;
         _touchScheduler.TargetSessionInvalidated += OnTargetSessionInvalidated;
-        _keyboardHook.Start();
-        _mouseHook.Start();
+        if(startNativeHooks){_keyboardHook.Start();_mouseHook.Start();}
     }
 
     // Compatibility constructor for existing tests only; production DI cannot resolve its legacy parameters.
     public InputMappingEngine(KeyboardHookService keyboardHook,MouseHookService mouseHook,CameraMouseLookService cameraMouseLook,XInputGamepadMapper gamepadMapper,IInputSimulator inputSimulator,ITouchSimulator touchSimulator,TouchEngine touchEngine,TouchScheduler touchScheduler,HotkeyParser hotkeyParser,TargetWindowSessionManager targetSession,WindowCoordinateTransformer transformer,ILogger<InputMappingEngine> logger,ITargetWindowActivationMonitor? activationMonitor=null,ITouchContactAllocator? allocator=null,MappingSessionDiagnostics? diagnostics=null)
-        :this(keyboardHook,mouseHook,cameraMouseLook,inputSimulator,touchEngine,touchScheduler,hotkeyParser,targetSession,transformer,logger,activationMonitor,allocator,diagnostics){}
+        :this(keyboardHook,mouseHook,cameraMouseLook,inputSimulator,touchEngine,touchScheduler,hotkeyParser,targetSession,transformer,logger,activationMonitor,allocator,diagnostics,startNativeHooks:false){}
 
     public bool IsActive { get; private set; }
     public bool IsCameraControlActive => _cameraMouseLook.IsActive;
+    internal InputPermissionSnapshot CurrentInputPermission => Volatile.Read(ref _inputPermission);
+    internal int RunningActionCount { get { lock(_gate) return _runningActions.Count; } }
 
     public event EventHandler<bool>? ActiveChanged;
     public event EventHandler<bool>? CameraControlActiveChanged;
@@ -100,10 +107,6 @@ public sealed class InputMappingEngine : IDisposable
             _profile = profile;
             // Always use TouchInjection mode for now
             Models.InputModeGuard.TouchInjectionMode = true;
-            foreach (var binding in profile.Bindings)
-            {
-                if (!_actionLocks.ContainsKey(binding.Id)) _actionLocks[binding.Id] = new SemaphoreSlim(1, 1);
-            }
         }
     }
 
@@ -118,6 +121,14 @@ public sealed class InputMappingEngine : IDisposable
 
             if (_stopTask is { IsCompleted: false }) return;
             if (_profile is null) return;
+            if(!_runtimePolicy.IsProfileModeSupported(_profile.InputMode))
+            {
+                Volatile.Write(ref _inputPermission,InputPermissionSnapshot.Denied);
+                _logger.LogWarning("UnsupportedInBeta: selected input mode is unavailable; mapping was not started.");
+                return;
+            }
+            var unsupportedCount=_profile.Bindings.Count(binding=>binding.IsActive&&!binding.UseNativeInput&&!_runtimePolicy.IsBindingKindSupported(binding.Kind));
+            if(unsupportedCount>0)_logger.LogWarning("UnsupportedInBeta: {Count} configured actions are disabled by the current runtime.",unsupportedCount);
             var targetStart = _targetSession.TryStart(
                 new IntPtr(_profile.Window.WindowHandle),
                 new ProfileSize(_profile.ResolutionWidth, _profile.ResolutionHeight));
@@ -227,10 +238,10 @@ public sealed class InputMappingEngine : IDisposable
     {
         var keys = new HashSet<int>();
         var buttons = new HashSet<int>();
-        if (_profile is not null)
+        if (_profile is not null && _runtimePolicy.IsProfileModeSupported(_profile.InputMode))
         {
             foreach (var binding in _profile.Bindings.Where(b =>
-                         b.IsActive && !b.UseNativeInput &&
+                         _runtimePolicy.CanExecute(_profile,b) &&
                          (_cameraMouseLook.IsActive || !IsLeftMouseArea(b))))
             {
                 var token = binding.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
@@ -242,7 +253,7 @@ public sealed class InputMappingEngine : IDisposable
                 foreach (var key in new[] { Key.W, Key.A, Key.S, Key.D }) keys.Add(KeyInterop.VirtualKeyFromKey(key));
             var camera = _hotkeyParser.ToVirtualKey(_profile.Camera.ActivationHotkey); if (camera != 0) keys.Add(camera);
         }
-        Volatile.Write(ref _inputPermission, new InputPermissionSnapshot(true, true, generation, keys, buttons));
+        Volatile.Write(ref _inputPermission, new InputPermissionSnapshot(true, true, generation, keys.ToFrozenSet(), buttons.ToFrozenSet()));
     }
 
     private bool IsCurrentGeneration(long generation)
@@ -299,6 +310,10 @@ public sealed class InputMappingEngine : IDisposable
             return;
         }
 
+        // Windows emits repeated Down messages while a physical key is held.
+        // All supported actions are edge-triggered until the matching Up.
+        if(!isInitialPress)return;
+
         if (_hotkeyParser.Matches(_profile.EnableHotkey, virtualKey, _pressedKeys))
         {
             Start();
@@ -335,8 +350,6 @@ public sealed class InputMappingEngine : IDisposable
 
         if (_hotkeyParser.Matches(_profile.Camera.ActivationHotkey, virtualKey, _pressedKeys))
         {
-            // Ignore low-level keyboard auto-repeat: one physical Ctrl press changes the mode once.
-            if (!isInitialPress) return;
             if (_cameraMouseLook.IsActive)
             {
                 _cameraMouseLook.Stop();
@@ -349,7 +362,7 @@ public sealed class InputMappingEngine : IDisposable
             var rawAnchorX = _profile.ResolutionWidth / 2d;
             var rawAnchorY = _profile.ResolutionHeight / 2d;
             if (!TryScalePointToTarget(rawAnchorX, rawAnchorY, out var scaledAnchor)) return;
-            if (!_mouseHook.IsInstalled)
+            if (_requiresInstalledMouseHook && !_mouseHook.IsInstalled)
             {
                 _logger.LogError("Camera start rejected: mouse movement suppression hook is unavailable");
                 return;
@@ -372,7 +385,7 @@ public sealed class InputMappingEngine : IDisposable
         }
 
         var matches = _profile.Bindings
-            .Where(binding => binding.IsActive && !binding.UseNativeInput &&
+            .Where(binding => _runtimePolicy.CanExecute(_profile,binding) &&
                               (_cameraMouseLook.IsActive || !IsLeftMouseArea(binding)) &&
                               _hotkeyParser.Matches(binding.Hotkey, virtualKey, _pressedKeys))
             .OrderByDescending(binding => binding.Priority)
@@ -396,7 +409,7 @@ public sealed class InputMappingEngine : IDisposable
             else
             {
                 // Other bindings (Tap, DoubleTap, etc.) still use ExecuteTouchBindingAsync
-                _ = RunTouchBindingAsync(binding, _gestureCancellation.Token);
+                _ = RunTouchBindingAsync(binding, CurrentGeneration, _gestureCancellation.Token);
             }
         }
     }
@@ -536,17 +549,20 @@ public sealed class InputMappingEngine : IDisposable
         _touchEngine.EndTouch(state.Lease);
     }
 
-    private async Task RunTouchBindingAsync(ControlBinding binding, CancellationToken cancellationToken)
+    private async Task RunTouchBindingAsync(ControlBinding binding,long generation,CancellationToken cancellationToken)
     {
-        if (!_actionLocks.TryGetValue(binding.Id, out var actionLock)) return;
+        lock(_gate)
+        {
+            if(cancellationToken.IsCancellationRequested||!IsCurrentGeneration(generation)||!_runningActions.Add((binding.Id,generation)))return;
+        }
         try
         {
-            await actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try { await ExecuteTouchBindingAsync(binding, cancellationToken).ConfigureAwait(false); }
-            finally { actionLock.Release(); }
+            if(!IsCurrentGeneration(generation))return;
+            await ExecuteTouchBindingAsync(binding, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex) { _logger.LogError(ex, "Mapped touch action failed"); }
+        finally{lock(_gate)_runningActions.Remove((binding.Id,generation));}
     }
 
     private async Task ExecuteTouchBindingAsync(ControlBinding binding, CancellationToken cancellationToken)
@@ -737,6 +753,7 @@ public sealed class InputMappingEngine : IDisposable
             IsActive = false;
             _touchEngine.ReleaseAll();
             _pressedKeys.Clear();
+            _runningActions.Clear();
         }
 
         _keyboardHook.GeneratedKeyDown -= OnGeneratedKeyDown;
@@ -753,6 +770,5 @@ public sealed class InputMappingEngine : IDisposable
         _keyboardHook.Stop();
         _mouseHook.Stop();
         _gestureCancellation.Dispose();
-        foreach (var actionLock in _actionLocks.Values) actionLock.Dispose();
     }
 }

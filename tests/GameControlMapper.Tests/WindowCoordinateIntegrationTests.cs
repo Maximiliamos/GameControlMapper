@@ -10,6 +10,53 @@ namespace GameControlMapper.Tests;
 
 public sealed class WindowCoordinateIntegrationTests
 {
+    [Theory]
+    [InlineData(BindingKind.Macro)]
+    [InlineData(BindingKind.Sequence)]
+    public async Task UnsupportedBinding_IsNotAddedToSuppressionSnapshot(BindingKind kind)
+    {
+        using var fixture=new Fixture(new(0,0,1000,500));fixture.StartBinding(kind);
+        var q=KeyInterop.VirtualKeyFromKey(Key.Q);
+        Assert.False(fixture.Mapping.CurrentInputPermission.SuppressedKeys.Contains(q));
+        Assert.False(fixture.KeyboardHook.ShouldSuppressKey!(q));
+        fixture.Press(Key.Q);await fixture.Scheduler.SendFrameOnceAsync();
+        Assert.Empty(fixture.Contacts.ActiveContacts);Assert.Empty(fixture.Backend.Contacts(TouchState.Down));
+    }
+
+    [Fact]public async Task UnsupportedMacro_IsNotAddedToSuppressionSnapshot()=>await UnsupportedBinding_IsNotAddedToSuppressionSnapshot(BindingKind.Macro);
+    [Fact]public async Task UnsupportedSequence_IsNotAddedToSuppressionSnapshot()=>await UnsupportedBinding_IsNotAddedToSuppressionSnapshot(BindingKind.Sequence);
+    [Fact]public void UnsupportedInputMode_IsNotSuppressed(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap,GameControlMapper.Models.InputMode.RawInput);Assert.False(f.Mapping.IsActive);Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);}
+    [Fact]public async Task UnsupportedBinding_DoesNotCallSendInput(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Macro);f.Press(Key.Q);await Task.Delay(75);Assert.Equal(0,f.Input.ExecuteCount);}
+    [Fact]public async Task UnsupportedBinding_DoesNotAcquireTouchLease(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Sequence);f.Press(Key.Q);await Task.Delay(75);Assert.Empty(f.Contacts.ActiveContacts);}
+    [Fact]public void UnsupportedBinding_DoesNotBlockPhysicalKey(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Macro);Assert.False(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));}
+    [Fact]public void SupportedTap_IsStillSuppressedWhileMappingActive(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);Assert.True(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));}
+    [Fact]public async Task SuppressionIsDeniedDuringStop(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stop=f.Mapping.StopAsync("test stop");Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);await stop;}
+    [Fact]public async Task SuppressionIsDeniedImmediatelyOnFocusLoss(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stop=f.Mapping.StopAsync("focus loss");Assert.False(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));await stop;}
+    [Fact]public async Task SuppressionIsDeniedForStaleGeneration(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);var stale=f.Mapping.CurrentInputPermission.Generation-1;f.GeneratedPress(Key.Q,stale);await Task.Delay(75);Assert.Empty(f.Backend.Contacts(TouchState.Down));}
+
+    [Theory]
+    [InlineData(BindingKind.Tap,1)]
+    [InlineData(BindingKind.DoubleTap,2)]
+    [InlineData(BindingKind.Hold,1)]
+    [InlineData(BindingKind.Swipe,1)]
+    public async Task KeyboardAutoRepeat_ProducesOneAction(BindingKind kind,int expectedDowns)
+    {
+        using var f=new Fixture(new(0,0,1000,500));f.StartBinding(kind);f.Press(Key.Q);for(var i=0;i<50;i++)f.Press(Key.Q);f.Release(Key.Q);
+        Assert.True(SpinWait.SpinUntil(()=>f.Backend.Contacts(TouchState.Down).Count>=expectedDowns,TimeSpan.FromSeconds(2)));
+        await Task.Delay(250);Assert.Equal(expectedDowns,f.Backend.Contacts(TouchState.Down).Count);
+    }
+    [Fact]public Task Tap_AutoRepeatProducesOneTap()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.Tap,1);
+    [Fact]public Task DoubleTap_AutoRepeatProducesOneDoubleTap()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.DoubleTap,2);
+    [Fact]public Task Hold_AutoRepeatProducesOneLifecycle()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.Hold,1);
+    [Fact]public Task Swipe_AutoRepeatProducesOneLifecycle()=>KeyboardAutoRepeat_ProducesOneAction(BindingKind.Swipe,1);
+    [Fact]public async Task MouseArea_RepeatedDownProducesOneContact(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.MouseArea);f.Press(Key.Q);f.Press(Key.Q);await f.Scheduler.SendFrameOnceAsync();Assert.Single(f.Backend.Contacts(TouchState.Down));}
+    [Fact]public async Task Joystick_AutoRepeatDoesNotCreateAdditionalLease(){using var f=new Fixture(new(0,0,1000,500));f.StartJoystick();f.Press(Key.W);await f.Scheduler.SendFrameOnceAsync();Assert.Single(f.Contacts.ActiveContacts);}
+    [Fact]public async Task QueuedAction_DoesNotStartAfterKeyUp(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);f.Release(Key.Q);await Task.Delay(350);Assert.Single(f.Backend.Contacts(TouchState.Down));}
+    [Fact]public async Task QueuedAction_DoesNotStartAfterStop(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);await f.Mapping.StopAsync();var downs=f.Backend.Contacts(TouchState.Down).Count;await Task.Delay(250);Assert.Equal(downs,f.Backend.Contacts(TouchState.Down).Count);}
+    [Fact]public async Task QueuedAction_DoesNotEnterNextGeneration(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<100;i++)f.Press(Key.Q);await f.Mapping.StopAsync();var before=f.Backend.Contacts(TouchState.Down).Count;f.StartBinding(BindingKind.Tap);f.Press(Key.Q);await Task.Delay(200);Assert.Equal(before+1,f.Backend.Contacts(TouchState.Down).Count);}
+    [Fact]public async Task RapidPressRelease_DoesNotLeaveActionLockOccupied(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);f.Press(Key.Q);f.Release(Key.Q);await Task.Delay(150);Assert.Equal(0,f.Mapping.RunningActionCount);}
+    [Fact]public async Task RepeatedInput_DoesNotGrowPendingTaskCount(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Hold);f.Press(Key.Q);for(var i=0;i<10_000;i++)f.Press(Key.Q);Assert.InRange(f.Mapping.RunningActionCount,0,1);f.Release(Key.Q);await f.Mapping.StopAsync();}
+
     [Fact]
     public async Task CtrlPress_TogglesCameraAndCtrlReleaseKeepsItActive()
     {
@@ -260,9 +307,11 @@ public sealed class WindowCoordinateIntegrationTests
         public RecordingBackend Backend { get; } = new();
         public TouchScheduler Scheduler { get; }
         public MouseHookService MouseHook { get; }
+        public KeyboardHookService KeyboardHook { get; }
         public CameraMouseLookService Camera { get; }
         public InputMappingEngine Mapping { get; }
         public MapperProfile Profile { get; }
+        public RecordingInputSimulator Input { get; }
 
         public Fixture(PhysicalClientRect rect)
         {
@@ -274,15 +323,16 @@ public sealed class WindowCoordinateIntegrationTests
             TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Contacts);
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Contacts, Backend, new FrameContext(), Session);
             Scheduler.Start();
-            var input = new NullInputSimulator();
+            Input = new RecordingInputSimulator();
             Camera = new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance, scheduler: Scheduler);
             MouseHook = new MouseHookService(NullLogger<MouseHookService>.Instance);
+            KeyboardHook = new KeyboardHookService(NullLogger<KeyboardHookService>.Instance);
             Mapping = new InputMappingEngine(
-                new KeyboardHookService(NullLogger<KeyboardHookService>.Instance),
+                KeyboardHook,
                 MouseHook,
                 Camera,
-                new XInputGamepadMapper(input, NullLogger<XInputGamepadMapper>.Instance),
-                input, new NullTouchSimulator(), TouchEngine, Scheduler, new HotkeyParser(), Session,
+                new XInputGamepadMapper(Input, NullLogger<XInputGamepadMapper>.Instance),
+                Input, new NullTouchSimulator(), TouchEngine, Scheduler, new HotkeyParser(), Session,
                 new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance);
             Profile = MapperProfile.CreateDefault();
             Profile.ResolutionWidth = 1000;
@@ -297,6 +347,13 @@ public sealed class WindowCoordinateIntegrationTests
             Profile.Bindings = [new ControlBinding { Name = "Test", Hotkey = hotkey, Kind = BindingKind.Tap, X = point.X, Y = point.Y, Width = 0, Height = 0 }];
             Mapping.SetProfile(Profile);
             Mapping.Start();
+        }
+
+        public void StartBinding(BindingKind kind,GameControlMapper.Models.InputMode mode=GameControlMapper.Models.InputMode.SendInput)
+        {
+            Profile.InputMode=mode;
+            Profile.Bindings=[new ControlBinding{Name="Audit action",Hotkey="Q",Kind=kind,X=100,Y=100,Width=100,Height=100,HoldMilliseconds=120}];
+            Mapping.SetProfile(Profile);Mapping.Start();
         }
 
         public void StartJoystick()
@@ -339,6 +396,12 @@ public sealed class WindowCoordinateIntegrationTests
         {
             var method = typeof(InputMappingEngine).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
             method.Invoke(Mapping, [null, KeyInterop.VirtualKeyFromKey(key)]);
+        }
+
+        public void GeneratedPress(Key key,long generation)
+        {
+            var method=typeof(InputMappingEngine).GetMethod("OnGeneratedKeyDown",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            method.Invoke(Mapping,[null,new GeneratedInputEvent(KeyInterop.VirtualKeyFromKey(key),generation)]);
         }
 
         public void PressMouse(int virtualKey)
@@ -417,9 +480,10 @@ public sealed class WindowCoordinateIntegrationTests
         public void ReleaseAll() { }
     }
 
-    private sealed class NullInputSimulator : IInputSimulator
+    private sealed class RecordingInputSimulator : IInputSimulator
     {
-        public Task ExecuteBindingAsync(ControlBinding binding, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public int ExecuteCount{get;private set;}
+        public Task ExecuteBindingAsync(ControlBinding binding, CancellationToken cancellationToken = default){ExecuteCount++;return Task.CompletedTask;}
         public Task ClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task DoubleClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task SwipeAsync(double startX, double startY, double endX, double endY, int durationMilliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
