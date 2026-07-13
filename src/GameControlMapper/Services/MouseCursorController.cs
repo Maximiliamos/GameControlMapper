@@ -12,31 +12,23 @@ public interface IMouseCursorController
     bool TrySetPosition(PhysicalScreenPoint point);
     bool TryGetClip(out CursorClip? clip);
     bool TrySetClip(CursorClip? clip);
+    bool TryGetVisible(out bool visible);
     bool TrySetVisible(bool visible);
 }
 
 public sealed class WindowsMouseCursorController : IMouseCursorController
 {
     private readonly object _visibilityGate = new();
-    private bool _hiddenByMapper;
     public bool TryGetPosition(out PhysicalScreenPoint point) { var ok=NativeMethods.GetCursorPos(out var p); point=new(p.X,p.Y); return ok; }
     public bool TrySetPosition(PhysicalScreenPoint point) => NativeMethods.SetCursorPos(point.X,point.Y);
     public bool TryGetClip(out CursorClip? clip) { if(!NativeMethods.GetClipCursor(out var r)){clip=null;return false;} clip=new(r.Left,r.Top,r.Right,r.Bottom);return true; }
     public bool TrySetClip(CursorClip? clip) { if(clip is null)return NativeMethods.ClipCursor(IntPtr.Zero); var r=new NativeMethods.RECT{Left=clip.Value.Left,Top=clip.Value.Top,Right=clip.Value.Right,Bottom=clip.Value.Bottom};return NativeMethods.ClipCursor(ref r); }
+    public bool TryGetVisible(out bool visible)=>TryIsCursorShowing(out visible);
     public bool TrySetVisible(bool visible)
     {
         lock (_visibilityGate)
         {
-            if (visible)
-            {
-                if (!_hiddenByMapper) return true;
-                var restored = SetActualVisibility(true);
-                if (restored) _hiddenByMapper = false;
-                return restored;
-            }
-
-            _hiddenByMapper = true;
-            return SetActualVisibility(false);
+            return SetActualVisibility(visible);
         }
     }
 

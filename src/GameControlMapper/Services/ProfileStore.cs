@@ -21,7 +21,7 @@ public sealed class ProfileStore : IProfileStore
     {var path=GetProfilePath(name);if(!File.Exists(path)){var p=MapperProfile.CreateDefault(name);await SaveAsync(p,ct);return p;}return await ReadValidatedAsync(path,ct);}
     public async Task SaveAsync(MapperProfile profile,CancellationToken ct=default)
     {
-        EnsureValid(profile);Directory.CreateDirectory(_profilesDirectory);var path=GetProfilePath(profile.Name);var temp=path+".profile.tmp";var backup=path+".bak";var json=JsonSerializer.Serialize(profile,JsonOptions);
+        EnsureValid(profile);Directory.CreateDirectory(_profilesDirectory);EnsureNoNormalizedCollision(profile.Name);var path=GetProfilePath(profile.Name);var temp=path+".profile.tmp";var backup=path+".bak";var json=JsonSerializer.Serialize(profile,JsonOptions);
         await _saveGate.WaitAsync(ct);try
         {
             try
@@ -47,11 +47,25 @@ public sealed class ProfileStore : IProfileStore
         }
         finally{_saveGate.Release();}
     }
-    public async Task<string> ExportAsync(MapperProfile profile,string targetPath,CancellationToken ct=default){EnsureValid(profile);var path=Directory.Exists(targetPath)?Path.Combine(targetPath,SafeName(profile.Name)+".json"):targetPath;await File.WriteAllTextAsync(path,JsonSerializer.Serialize(profile,JsonOptions),ct);return path;}
+    public async Task<string> ExportAsync(MapperProfile profile,string targetPath,CancellationToken ct=default)
+    {
+        EnsureValid(profile);var path=Directory.Exists(targetPath)?Path.Combine(targetPath,SafeName(profile.Name)+".json"):Path.GetFullPath(targetPath);var temp=path+".export.tmp";
+        try{await File.WriteAllTextAsync(temp,JsonSerializer.Serialize(profile,JsonOptions),ct);await ReadValidatedAsync(temp,ct);File.Move(temp,path,true);return path;}finally{if(File.Exists(temp))File.Delete(temp);}
+    }
     public async Task<MapperProfile> ImportAsync(string sourcePath,CancellationToken ct=default){var profile=await ReadValidatedAsync(sourcePath,ct);await SaveAsync(profile,ct);return profile;}
     public async Task<MapperProfile> LoadBackupAsync(string name,CancellationToken ct=default)=>await ReadValidatedAsync(GetProfilePath(name)+".bak",ct);
     private async Task<MapperProfile> ReadValidatedAsync(string path,CancellationToken ct){try{await using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);var p=await JsonSerializer.DeserializeAsync<MapperProfile>(stream,JsonOptions,ct)??throw new JsonException("Profile is empty.");EnsureValid(p);return p;}catch(ProfileValidationException){throw;}catch(Exception ex){var result=new ProfileValidationResult([new("profile.json.invalid","$",ex.Message)],[]);throw new ProfileValidationException(result);}}
     private void EnsureValid(MapperProfile profile){var result=_validator.Validate(profile);if(!result.IsValid)throw new ProfileValidationException(result);}
     private string GetProfilePath(string name){var safe=SafeName(name);var path=Path.GetFullPath(Path.Combine(_profilesDirectory,safe+".json"));if(!path.StartsWith(_profilesDirectory+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Profile path escapes Profiles directory.");return path;}
-    private static string SafeName(string name){var trimmed=name.Trim();if(string.IsNullOrWhiteSpace(trimmed)||trimmed is "." or ".."||trimmed.IndexOfAny(Path.GetInvalidFileNameChars())>=0||trimmed.Contains('/')||trimmed.Contains('\\'))throw new InvalidOperationException("Profile name is not a safe file name.");return trimmed;}
+    private void EnsureNoNormalizedCollision(string name)
+    {
+        var wanted=ProfileNamePolicy.NormalizeForComparison(name);
+        foreach(var path in Directory.EnumerateFiles(_profilesDirectory,"*.json"))
+        {
+            var existing=Path.GetFileNameWithoutExtension(path);
+            if(ProfileNamePolicy.NormalizeForComparison(existing)==wanted&&!string.Equals(existing,name,StringComparison.Ordinal))
+                throw new ProfileValidationException(new ProfileValidationResult([new("profile.name.collision","name","Profile name collides after Windows normalization.")],[]));
+        }
+    }
+    private static string SafeName(string name){if(!ProfileNamePolicy.TryValidate(name,out _,out var message))throw new InvalidOperationException(message);return name;}
 }

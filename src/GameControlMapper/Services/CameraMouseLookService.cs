@@ -34,6 +34,7 @@ public sealed class CameraMouseLookService : IDisposable
     private double _radiusX;
     private double _radiusY;
     private bool _cursorHidden;
+    private CursorSessionState? _cursorSession;
     private int _cursorWarningLogged;
     private PhysicalScreenPoint _anchor;
     private long _generation;
@@ -42,6 +43,8 @@ public sealed class CameraMouseLookService : IDisposable
     private long _rebaseCount;
     private TouchContactLease? _lease;
     private CancellationTokenSource? _cycleCancellation;
+
+    private sealed record CursorSessionState(long Generation,bool HasPosition,PhysicalScreenPoint Position,bool HasClip,CursorClip? Clip,bool OriginalVisible);
 
     public CameraMouseLookService(
         TouchEngine touch,
@@ -101,10 +104,11 @@ public sealed class CameraMouseLookService : IDisposable
             _generation = target?.Generation ?? ++_nextGeneration;
             _lastTimestamp = _time.GetTimestamp();
             _lease = null;
-            if (_cursor is not null && !_cursor.TrySetVisible(false))
+            _cursorSession=CaptureCursorSessionLocked(_generation);
+            if (_cursor is not null && _cursorSession is null)
             {
                 _generation = 0;
-                _logger.LogWarning("Camera start rejected: the system cursor could not be hidden");
+                _logger.LogWarning("Camera start rejected: cursor ownership could not be established");
                 return false;
             }
             _cursorHidden = _cursor is not null;
@@ -123,13 +127,46 @@ public sealed class CameraMouseLookService : IDisposable
         if (started)
         {
             if (_cursor is not null && _cycleCancellation is not null)
-                _ = GuardCursorVisibilityAsync(_cycleCancellation.Token);
+                _ = GuardCursorVisibilityAsync(_generation,_cycleCancellation.Token);
             ActiveChanged?.Invoke(this, true);
         }
         return started;
     }
 
-    private async Task GuardCursorVisibilityAsync(CancellationToken cancellationToken)
+    private CursorSessionState? CaptureCursorSessionLocked(long generation)
+    {
+        if(_cursor is null)return null;
+        try
+        {
+            var hasPosition=_cursor.TryGetPosition(out var position);
+            var hasClip=_cursor.TryGetClip(out var clip);
+            if(!_cursor.TryGetVisible(out var visible))return null;
+            var state=new CursorSessionState(generation,hasPosition,position,hasClip,clip,visible);
+            if(visible&&!_cursor.TrySetVisible(false)){_cursor.TrySetVisible(true);return null;}
+            return state;
+        }
+        catch(Exception ex)
+        {
+            _logger.LogWarning(ex,"Camera cursor state capture failed");
+            return null;
+        }
+    }
+
+    private void RestoreCursorSessionLocked()
+    {
+        var state=_cursorSession;
+        _cursorSession=null;
+        _cursorHidden=false;
+        if(state is null||_cursor is null)return;
+        try
+        {
+            // Camera does not move or clip the cursor, so only visibility is owned.
+            if(!_cursor.TrySetVisible(state.OriginalVisible))_logger.LogWarning("Camera cursor visibility restore failed");
+        }
+        catch(Exception ex){_logger.LogWarning(ex,"Camera cursor visibility restore failed");}
+    }
+
+    private async Task GuardCursorVisibilityAsync(long generation,CancellationToken cancellationToken)
     {
         try
         {
@@ -137,10 +174,11 @@ public sealed class CameraMouseLookService : IDisposable
             {
                 lock (_gate)
                 {
-                    if (!_active || !_cursorHidden) return;
-                    if (_cursor?.TrySetVisible(false) == false &&
-                        Interlocked.Exchange(ref _cursorWarningLogged, 1) == 0)
-                        _logger.LogWarning("Camera cursor guard could not keep the system cursor hidden");
+                    if (!_active || !_cursorHidden || _generation!=generation || _cursorSession?.Generation!=generation) return;
+                    var visible=false;
+                    var ok=_cursor?.TryGetVisible(out visible)==true;
+                    if(ok&&visible)ok=_cursor!.TrySetVisible(false);
+                    if(!ok&&Interlocked.Exchange(ref _cursorWarningLogged,1)==0)_logger.LogWarning("Camera cursor guard could not verify the system cursor state");
                 }
                 await Task.Delay(50, cancellationToken).ConfigureAwait(false);
             }
@@ -161,7 +199,6 @@ public sealed class CameraMouseLookService : IDisposable
     private void QueueOrProcessMove(int dx, int dy, long? generation)
     {
         var failed = false;
-        var restoreCursor = false;
         lock (_gate)
         {
             var expectedGeneration = generation ?? _generation;
@@ -182,11 +219,10 @@ public sealed class CameraMouseLookService : IDisposable
             if (_lease is null && !_rebasing && !TryStartDirectionalStrokeLocked(inputDx, inputDy, expectedGeneration, "camera"))
             {
                 failed = true;
-                restoreCursor = _cursorHidden;
-                _cursorHidden = false;
                 _active = false;
                 _generation = 0;
                 _cycleCancellation?.Cancel();
+                RestoreCursorSessionLocked();
             }
             if (_scheduler is null)
             {
@@ -199,7 +235,6 @@ public sealed class CameraMouseLookService : IDisposable
             }
         }
 
-        if (restoreCursor) _cursor?.TrySetVisible(true);
         if (failed) ActiveChanged?.Invoke(this, false);
     }
 
@@ -362,9 +397,7 @@ public sealed class CameraMouseLookService : IDisposable
         catch (Exception ex)
         {
             var notify = false;
-            var restoreCursor = false;
-            lock (_gate) (notify, restoreCursor) = FailCycleLocked("Camera contact rebase failed.", ex);
-            if (restoreCursor) _cursor?.TrySetVisible(true);
+            lock (_gate) notify = FailCycleLocked("Camera contact rebase failed.", ex);
             if (notify) ActiveChanged?.Invoke(this, false);
         }
     }
@@ -383,11 +416,9 @@ public sealed class CameraMouseLookService : IDisposable
         await Task.Delay(12, cancellationToken).ConfigureAwait(false);
     }
 
-    private (bool Changed, bool RestoreCursor) FailCycleLocked(string message, Exception? exception = null)
+    private bool FailCycleLocked(string message, Exception? exception = null)
     {
         var changed = _active;
-        var restoreCursor = _cursorHidden;
-        _cursorHidden = false;
         var lease = _lease;
         _lease = null;
         _rebasing = false;
@@ -396,10 +427,11 @@ public sealed class CameraMouseLookService : IDisposable
         _active = false;
         _generation = 0;
         _cycleCancellation?.Cancel();
+        RestoreCursorSessionLocked();
         if (lease is not null) _touch.EndTouch(lease);
         if (exception is null) _logger.LogError("{Message}", message);
         else _logger.LogError(exception, "{Message}", message);
-        return (changed, restoreCursor);
+        return changed;
     }
 
     public void Stop()
@@ -407,7 +439,6 @@ public sealed class CameraMouseLookService : IDisposable
         TouchContactLease? lease;
         CancellationTokenSource? cancellation;
         bool changed;
-        bool restoreCursor;
         lock (_gate)
         {
             lease = _lease;
@@ -415,20 +446,18 @@ public sealed class CameraMouseLookService : IDisposable
             cancellation = _cycleCancellation;
             _cycleCancellation = null;
             changed = _active;
-            restoreCursor = _cursorHidden;
-            _cursorHidden = false;
             _active = false;
             _rebasing = false;
             _pendingDx = _pendingDy = 0;
             _frameDx = _frameDy = 0;
             _armingDx = _armingDy = 0;
             _generation = 0;
+            RestoreCursorSessionLocked();
         }
 
         cancellation?.Cancel();
         if (lease is not null) _touch.EndTouch(lease);
         cancellation?.Dispose();
-        if (restoreCursor) _cursor?.TrySetVisible(true);
         if (changed) ActiveChanged?.Invoke(this, false);
     }
 
