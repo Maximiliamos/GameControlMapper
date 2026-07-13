@@ -1,15 +1,87 @@
 name: Windows CI
+
 on:
   push:
   pull_request:
+
 jobs:
   build-test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - run: dotnet restore GameControlMapper.sln
-      - run: dotnet build GameControlMapper.sln -c Release --no-restore
-      - run: dotnet test GameControlMapper.sln -c Release --no-build
+      - name: Restore
+        run: dotnet restore GameControlMapper.sln -r win-x64
+      - name: Release build (warnings are errors)
+        run: dotnet build GameControlMapper.sln -c Release --no-restore -warnaserror -p:SourceRevisionId=${{ github.sha }}
+      - name: Behavioral tests
+        run: dotnet test GameControlMapper.sln -c Release --no-build --logger "trx;LogFileName=ci.trx" --results-directory TestResults
+      - name: Report actual test counters
+        shell: powershell
+        run: |
+          [xml]$trx = Get-Content TestResults/ci.trx
+          $c = $trx.TestRun.ResultSummary.Counters
+          if ([int]$c.total -le 0 -or [int]$c.failed -ne 0 -or [int]$c.notExecuted -ne 0) { throw "Invalid test counters: $($c.OuterXml)" }
+          "Tests: total=$($c.total), passed=$($c.passed), failed=$($c.failed), skipped=$($c.notExecuted)" | Tee-Object -FilePath TestResults/test-count.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+
+  release-scripts:
+    runs-on: windows-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build and verify self-contained test release
+        shell: powershell
+        run: |
+          $version = "0.0.0-ci.${{ github.run_number }}"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version $version -OutputDirectory ci-artifacts -CommitHash "${{ github.sha }}"
+          if ($LASTEXITCODE) { throw 'build-release failed' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -ArtifactsDirectory ci-artifacts -Version $version -ExpectedCommit "${{ github.sha }}"
+          if ($LASTEXITCODE) { throw 'verify-release failed' }
+      - name: Exercise negative manifest cases
+        shell: powershell
+        run: |
+          $version = "0.0.0-ci.${{ github.run_number }}"
+          $negative = Join-Path $env:RUNNER_TEMP 'negative-release'
+          Copy-Item ci-artifacts $negative -Recurse
+          Remove-Item (Join-Path $negative 'manifest.json')
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -ArtifactsDirectory $negative -Version $version -ExpectedCommit "${{ github.sha }}"
+          if ($LASTEXITCODE -eq 0) { throw 'Missing manifest was accepted' }
+          Remove-Item $negative -Recurse -Force
+          Copy-Item ci-artifacts $negative -Recurse
+          Set-Content (Join-Path $negative 'manifest.json') '{malformed'
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -ArtifactsDirectory $negative -Version $version -ExpectedCommit "${{ github.sha }}"
+          if ($LASTEXITCODE -eq 0) { throw 'Malformed manifest was accepted' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-self-contained-beta
+          path: ci-artifacts
+
+  static-safety:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject legacy production paths and unsafe claims
+        shell: powershell
+        run: |
+          $legacy = git grep -n -E 'WindowsTouchSimulator|ITouchSimulator|SendInputSimulator|IInputSimulator|XInputGamepadMapper|FixedContacts|CoordinateScaler|InputModeGuard' -- src/GameControlMapper
+          if ($LASTEXITCODE -eq 0) { $legacy; throw 'Legacy input path referenced by production code' }
+          $unsafeLogs = git grep -n -E 'LogInformation\([^\r\n]*(virtualKey|vkCode|scanCode|KeyDown|KeyUp|MouseDown|MouseUp|Joystick.*(X|Y)|Camera.*(dx|dy)|frame number)' -- src/GameControlMapper
+          if ($LASTEXITCODE -eq 0) { $unsafeLogs; throw 'Forbidden production logging template found' }
+          $hardcodedCounts = git grep -n -E '[0-9]{2,}[[:space:]]+(tests|тест)' -- README.md docs scripts
+          if ($LASTEXITCODE -eq 0) { $hardcodedCounts; throw 'Hardcoded test count found outside generated manifest' }
+          $releaseClaims = git grep -n -E 'PUBLIC RELEASE READY|1\.0 READY|статус:.*(RC|release candidate)' -- README.md docs
+          if ($LASTEXITCODE -eq 0) { $releaseClaims; throw 'Unsupported public release claim found' }

@@ -26,12 +26,13 @@ try {
     catch { throw "Malformed candidate manifest: $($_.Exception.Message)" }
     if ($candidateManifest.commitHash -cne $Commit) { throw 'Validated candidate commit mismatch.' }
     $candidateVersion = [string]$candidateManifest.version
-    if ($candidateVersion -eq $Version) { throw 'Finalizer requires a separately versioned validated beta or RC candidate.' }
+    if ($candidateVersion -eq $Version) { throw 'Finalizer requires a separately versioned validated beta candidate.' }
 
     & (Join-Path $PSScriptRoot 'validate-manual-release.ps1') `
         -ReportPath $ReportPath -ApplicationArchive $ApplicationArchive -HarnessArchive $HarnessArchive `
         -ExpectedVersion $candidateVersion -ExpectedCommit $Commit -CandidateManifest $candidateManifestPath
     if ($LASTEXITCODE) { throw 'Manual validation failed.' }
+    $validatedReport = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
 
     $output = [IO.Path]::GetFullPath($OutputDirectory)
     & (Join-Path $PSScriptRoot 'build-release.ps1') -Version $Version -OutputDirectory $output -CommitHash $Commit
@@ -45,7 +46,7 @@ try {
         if ($candidateHashes.sha256 -contains $finalHash.sha256) { throw 'A final archive is byte-identical to a renamed validated candidate.' }
     }
 
-    $finalManifest | Add-Member -NotePropertyName manualValidation -NotePropertyValue ([string](Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json).verdict) -Force
+    $finalManifest | Add-Member -NotePropertyName manualValidation -NotePropertyValue ([string]$validatedReport.verdict) -Force
     $finalManifest | Add-Member -NotePropertyName validatedCandidateVersion -NotePropertyValue $candidateVersion -Force
     $finalManifest | Add-Member -NotePropertyName validatedRcHashes -NotePropertyValue $candidateHashes -Force
     $finalManifest | Add-Member -NotePropertyName finalArchiveHashes -NotePropertyValue $finalHashes -Force
@@ -54,7 +55,25 @@ try {
     $reportText = [IO.Path]::ChangeExtension($ReportPath,'.txt')
     if (Test-Path -LiteralPath $reportText) { Copy-Item -LiteralPath $reportText -Destination (Join-Path $output 'manual-validation-report.txt') -Force }
     Copy-Item -LiteralPath (Join-Path $root 'CHANGELOG.md') -Destination (Join-Path $output 'RELEASE_NOTES.md') -Force
-    Copy-Item -LiteralPath (Join-Path $root 'docs\SUPPORT_MATRIX.md') -Destination (Join-Path $output 'SUPPORT_MATRIX.md') -Force
+    $environmentRows = @(
+        @{ Id=44; Name='High DPI (125% or more)' },
+        @{ Id=45; Name='Multiple monitors' },
+        @{ Id=46; Name='Negative screen origin' },
+        @{ Id=47; Name='Mixed DPI' })
+    $supportLines = @(
+        '# Validated support matrix', '',
+        "Generated from manual report for version $Version and commit $Commit.", '',
+        '| Area | Status | Evidence |', '|---|---|---|',
+        '| Core Windows Touch scenarios | Supported | All required core scenarios passed with zero active contacts |')
+    foreach ($row in $environmentRows) {
+        $scenario = @($validatedReport.scenarios | Where-Object { [int]$_.id -eq $row.Id })[0]
+        $status = if ($scenario.status -eq 'Passed') { 'Supported' } else { 'AutomatedOnly' }
+        $supportLines += "| $($row.Name) | $status | guided scenario $($row.Id): $($scenario.status) |"
+    }
+    $supportLines += @(
+        '| Specific games and emulators | Experimental | not established by the generic harness |',
+        '| XInput, Macro/Sequence, ADB, Interception, ViGEm, pinch, rotation | Unsupported | runtime absent |')
+    $supportLines | Set-Content -LiteralPath (Join-Path $output 'SUPPORT_MATRIX.md') -Encoding utf8
     & (Join-Path $PSScriptRoot 'verify-release.ps1') -ArtifactsDirectory $output -Version $Version -ExpectedCommit $Commit
     if ($LASTEXITCODE) { throw 'Final artifact verification failed.' }
     Write-Host "Final release rebuilt and created in $output"
