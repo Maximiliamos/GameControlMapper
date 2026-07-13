@@ -122,6 +122,7 @@ public sealed class MainViewModel : ObservableObject
         {
             if(!SetProperty(ref _selectedTargetWindow,value)||value is null)return;
             CurrentProfile.Window.ProcessName=value.ProcessName;CurrentProfile.Window.WindowTitle=value.Title;CurrentProfile.Window.WindowHandle=value.Handle.ToInt64();CurrentProfile.Window.X=value.X;CurrentProfile.Window.Y=value.Y;CurrentProfile.Window.Width=value.Width;CurrentProfile.Window.Height=value.Height;
+            if(value.ProcessName.Equals("tanksblitz",StringComparison.OrdinalIgnoreCase)||value.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase))CurrentProfile.Game="Tanks Blitz";
             OnPropertyChanged(nameof(TargetWindowStatus));
             _mappingEngine.SetProfile(CurrentProfile);
             _logger.LogInformation("Target window selected: {ProcessName}; handle=0x{Handle:X}",value.ProcessName,value.Handle.ToInt64());
@@ -385,7 +386,9 @@ public sealed class MainViewModel : ObservableObject
             Profiles.Add(profileName);
         }
 
-        SelectedProfileName = Profiles.FirstOrDefault();
+        SelectedProfileName = Profiles.FirstOrDefault(name =>
+                                  name.Equals("Основной — Tanks Blitz", StringComparison.OrdinalIgnoreCase))
+                              ?? Profiles.FirstOrDefault();
         RefreshTargetWindows();
     }
 
@@ -840,9 +843,12 @@ public sealed class MainViewModel : ObservableObject
 
     private void RefreshTargetWindows()
     {
-        var currentHandle=CurrentProfile.Window.WindowHandle;var windows=_gameWindowService.FindWindows().Where(x=>x.Handle!=0).ToArray();
+        var currentHandle=CurrentProfile.Window.WindowHandle;var savedProcess=CurrentProfile.Window.ProcessName;var savedTitle=CurrentProfile.Window.WindowTitle;var windows=_gameWindowService.FindWindows().Where(x=>x.Handle!=0).ToArray();
         TargetWindows.Clear();foreach(var window in windows)TargetWindows.Add(window);
-        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.ProcessName.Equals("MuMuNxDevice",StringComparison.OrdinalIgnoreCase)?5:x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?4:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?3:1).FirstOrDefault();
+        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)
+            ??TargetWindows.FirstOrDefault(x=>!string.IsNullOrWhiteSpace(savedProcess)&&x.ProcessName.Equals(savedProcess,StringComparison.OrdinalIgnoreCase)&&
+                (string.IsNullOrWhiteSpace(savedTitle)||x.Title.Contains(savedTitle,StringComparison.OrdinalIgnoreCase)||savedTitle.Contains(x.Title,StringComparison.OrdinalIgnoreCase)))
+            ??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.ProcessName.Equals("MuMuNxDevice",StringComparison.OrdinalIgnoreCase)?5:x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?4:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?3:1).FirstOrDefault();
         OnPropertyChanged(nameof(TargetWindowStatus));
     }
 

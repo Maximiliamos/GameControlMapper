@@ -25,7 +25,12 @@ public sealed class MapperProfile
         return new MapperProfile
         {
             Name = name,
-            Game = name,
+            Game = "Tanks Blitz",
+            Window = new GameWindowBinding
+            {
+                ProcessName = "tanksblitz",
+                WindowTitle = "Tanks Blitz"
+            },
             Camera = new CameraSettings
             {
                 ActivationHotkey = "LeftCtrl",
