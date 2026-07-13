@@ -344,10 +344,16 @@ public sealed class InputMappingEngine : IDisposable
                 return;
             }
 
-            var cameraBinding = FindCameraBinding(_profile);
-            var rawAnchorX = cameraBinding?.CenterX ?? _profile.Camera.AnchorX;
-            var rawAnchorY = cameraBinding?.CenterY ?? _profile.Camera.AnchorY;
+            // Relative mouse-look uses a safe symmetric stroke around the target
+            // centre. The editor marker is a visual binding, not a click target.
+            var rawAnchorX = _profile.ResolutionWidth / 2d;
+            var rawAnchorY = _profile.ResolutionHeight / 2d;
             if (!TryScalePointToTarget(rawAnchorX, rawAnchorY, out var scaledAnchor)) return;
+            if (!_mouseHook.IsInstalled)
+            {
+                _logger.LogError("Camera start rejected: mouse movement suppression hook is unavailable");
+                return;
+            }
             _logger.LogInformation(
                 "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
                 rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
@@ -612,15 +618,6 @@ public sealed class InputMappingEngine : IDisposable
                binding.Kind == BindingKind.Joystick &&
                !binding.UseNativeInput &&
                binding.Hotkey.Equals("WASD", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private ControlBinding? FindCameraBinding(MapperProfile profile)
-    {
-        return profile.Bindings
-            .Where(binding => binding.IsActive && binding.Kind == BindingKind.Aim)
-            .FirstOrDefault(binding =>
-                _hotkeyParser.Matches(binding.Hotkey, _hotkeyParser.ToVirtualKey(profile.Camera.ActivationHotkey), new HashSet<int> { _hotkeyParser.ToVirtualKey(profile.Camera.ActivationHotkey) }) ||
-                binding.Name.Equals("Camera", StringComparison.OrdinalIgnoreCase));
     }
 
     private (int X, int Y) GetWasdVector()

@@ -13,7 +13,8 @@ public sealed class CursorIsolationAndMixedInputTests
  [InlineData(1920,1080)]
  [InlineData(-1920,250)]
  public void CursorIsolation_PreservesSignedPhysicalCoordinates(int x,int y){var point=new NativeMethods.POINT{X=x,Y=y};var restored=MouseHookService.Unpack(MouseHookService.Pack(point));Assert.Equal((x,y),(restored.X,restored.Y));}
- [Fact]public void CameraPath_DoesNotMoveClipOrHideSystemCursor(){var source=Source("src/GameControlMapper/Services/CameraMouseLookService.cs");Assert.DoesNotContain("TrySetPosition",source);Assert.DoesNotContain("TrySetClip",source);Assert.DoesNotContain("TrySetVisible",source);Assert.DoesNotContain("TryGetPosition",source);}
+ [Fact]public void CameraPath_HidesButNeverMovesReadsOrClipsCursor(){var source=Source("src/GameControlMapper/Services/CameraMouseLookService.cs");Assert.DoesNotContain("TrySetPosition",source);Assert.DoesNotContain("TrySetClip",source);Assert.Contains("TrySetVisible(false)",source);Assert.Contains("TrySetVisible(true)",source);Assert.DoesNotContain("TryGetPosition",source);}
+ [Fact]public void WasdAndMappedButtons_DoNotUseCursorCoordinates(){var source=Source("src/GameControlMapper/Services/InputMappingEngine.cs");Assert.DoesNotContain("GetCursorPosition",source);Assert.DoesNotContain("MouseMoveTo",source);Assert.DoesNotContain("MoveRelative",source);Assert.DoesNotContain("SetCursorPos",source);}
  [Fact]public void RawMouse_RelativeDeltaIsAccepted(){var mouse=new RawMouseInputSource.RAWMOUSE{LastX=12,LastY=-4};Assert.True(RawMouseInputSource.TryGetRelativeDelta(mouse,out var x,out var y));Assert.Equal((12,-4),(x,y));}
  [Fact]public void RawMouse_AbsolutePacketIsRejected(){var mouse=new RawMouseInputSource.RAWMOUSE{Flags=1,LastX=12};Assert.False(RawMouseInputSource.TryGetRelativeDelta(mouse,out _,out _));}
  [Fact]public void RawMouse_ZeroDeltaIsIgnored()=>Assert.False(RawMouseInputSource.TryGetRelativeDelta(new(),out _,out _));

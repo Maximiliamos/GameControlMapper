@@ -45,6 +45,7 @@ public sealed class MouseHookService : IDisposable
     public event EventHandler<GeneratedInputEvent>? GeneratedButtonUp;
     public Func<int, bool>? ShouldSuppressButton { get; set; }
     public Func<long>? CaptureGeneration { get; set; }
+    public bool IsInstalled => _hook != IntPtr.Zero;
     public bool CaptureMovement
     {
         get => _captureMovement;

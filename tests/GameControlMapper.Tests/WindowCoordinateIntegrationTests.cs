@@ -19,6 +19,9 @@ public sealed class WindowCoordinateIntegrationTests
         fixture.Press(Key.LeftCtrl);
         Assert.True(fixture.Camera.IsActive);
         Assert.True(fixture.MouseHook.CaptureMovement);
+        Assert.Empty(fixture.Contacts.ActiveContacts); // Ctrl arms camera without a stationary tap.
+        fixture.Camera.OnMouseMove(10, 0, fixture.Camera.Generation);
+        await fixture.Scheduler.SendFrameOnceAsync();
         Assert.True(fixture.Backend.WaitForState(TouchState.Down));
         fixture.Press(Key.LeftCtrl); // low-level auto-repeat must not toggle the mode
         Assert.True(fixture.Camera.IsActive);
@@ -47,12 +50,15 @@ public sealed class WindowCoordinateIntegrationTests
         fixture.Press(Key.LeftCtrl);
         fixture.Release(Key.LeftCtrl);
         Assert.True(fixture.MouseHook.ShouldSuppressButton!(NativeMethods.VK_LBUTTON));
+        fixture.Camera.OnMouseMove(10, 0, fixture.Camera.Generation);
+        await fixture.Scheduler.SendFrameOnceAsync();
         fixture.PressMouse(NativeMethods.VK_LBUTTON);
         Assert.Equal(2, fixture.Contacts.ActiveContacts.Count);
 
         fixture.Press(Key.LeftCtrl);
         fixture.Release(Key.LeftCtrl);
         Assert.False(fixture.MouseHook.ShouldSuppressButton!(NativeMethods.VK_LBUTTON));
+        await fixture.Scheduler.SendFrameOnceAsync();
         Assert.Empty(fixture.Contacts.ActiveContacts);
         await fixture.Mapping.StopAsync();
     }
