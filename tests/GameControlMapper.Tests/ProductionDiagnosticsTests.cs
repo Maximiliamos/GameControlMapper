@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using GameControlMapper.Models;
 using GameControlMapper.Services;
+using GameControlMapper.Win32;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -47,6 +48,7 @@ public sealed class ProductionDiagnosticsTests
  [Fact]public async Task CrashHandling_SuccessCanMarkDispatcherHandled(){var c=new CrashHandlingService(NullLogger<CrashHandlingService>.Instance,()=>Task.CompletedTask,()=>{});var result=await c.HandleAsync("Dispatcher",new Exception());Assert.True(result.CanMarkDispatcherHandled);}
  [Fact]public async Task CrashHandlerFailure_WritesSeparateFallback(){using var f=new F();var c=new CrashHandlingService(new ThrowingLogger(),()=>Task.CompletedTask,()=>{},f.Log);var result=await c.HandleAsync("Dispatcher",new Exception("original"));Assert.True(result.HandlerFailed);var path=Path.Combine(f.Dir,"crash-handler-fallback.txt");Assert.True(File.Exists(path));Assert.Contains("Handler failure",File.ReadAllText(path));}
  [Fact]public async Task DiagnosticExport_ContainsRequiredMetadata(){using var f=new F();var z=await f.Export();Assert.Contains("metadata.txt",Entries(z));}
+ [Fact]public async Task DiagnosticExport_ReportsActualDpiAwareness(){using var f=new F();var z=await f.Export();var context=NativeMethods.GetThreadDpiAwarenessContext();var expected=NativeMethods.AreDpiAwarenessContextsEqual(context,NativeMethods.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)?"PerMonitorV2":"NotPerMonitorV2";Assert.Contains($"DPI awareness: {expected}",ReadAll(z));}
  [Fact]public async Task DiagnosticExport_DoesNotContainProfileContents(){using var f=new F();var z=await f.Export();Assert.DoesNotContain("SECRET_PROFILE_CONTENT",ReadAll(z));}
  [Fact]public async Task DiagnosticExport_DoesNotContainPressedKeys(){using var f=new F();var z=await f.Export();Assert.DoesNotContain("pressedKeys",ReadAll(z),StringComparison.OrdinalIgnoreCase);}
  [Fact]public void DiagnosticExport_RedactsUserPaths(){var p=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)+"\\secret.txt";Assert.StartsWith("%USERPROFILE%",FileLogSink.Redact(p));}

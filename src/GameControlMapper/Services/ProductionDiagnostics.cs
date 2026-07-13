@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.IO;
+using GameControlMapper.Win32;
 using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
@@ -70,7 +71,8 @@ public sealed class DiagnosticExportService
         {
             var asm=Assembly.GetEntryAssembly()??Assembly.GetExecutingAssembly();var names=await _profiles.ListProfilesAsync(ct);
             var informational=asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            var metadata=new StringBuilder().AppendLine($"Version: {asm.GetName().Version}").AppendLine($"InformationalVersion: {informational}").AppendLine($"Commit: {informational}").AppendLine($"Windows: {Environment.OSVersion.VersionString}").AppendLine($".NET: {RuntimeInformation.FrameworkDescription}").AppendLine("DPI awareness: PerMonitorV2").AppendLine("Backend capabilities: maxContacts=10 touchInjection=true").AppendLine("Capability matrix:");
+            var dpiContext=NativeMethods.GetThreadDpiAwarenessContext();var isPerMonitorV2=NativeMethods.AreDpiAwarenessContextsEqual(dpiContext,NativeMethods.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            var metadata=new StringBuilder().AppendLine($"Version: {asm.GetName().Version}").AppendLine($"InformationalVersion: {informational}").AppendLine($"Commit: {informational}").AppendLine($"Windows: {Environment.OSVersion.VersionString}").AppendLine($".NET: {RuntimeInformation.FrameworkDescription}").AppendLine($"DPI awareness: {(isPerMonitorV2?"PerMonitorV2":"NotPerMonitorV2")}").AppendLine("Backend capabilities: maxContacts=10 touchInjection=true").AppendLine("Capability matrix:");
             foreach(var capability in _capabilities.Items)metadata.AppendLine($"- {capability.Id}: {capability.Status} ({capability.Limitation})");
             metadata.AppendLine($"Last session: {_session.Last}").AppendLine($"Profile count: {names.Count}").AppendLine($"Profile backups present: {Directory.Exists(Path.Combine(AppContext.BaseDirectory,"Profiles"))&&Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory,"Profiles"),"*.bak").Any()}").AppendLine("Target status: not captured when export is outside an active mapping session");
             await File.WriteAllTextAsync(Path.Combine(temp,"metadata.txt"),ProductionLogPrivacy.FilterDiagnosticText(metadata.ToString()),ct);

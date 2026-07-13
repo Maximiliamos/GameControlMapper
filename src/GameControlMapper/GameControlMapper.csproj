@@ -3,7 +3,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>GameControlMapper</AssemblyName>
@@ -12,6 +11,7 @@
     <NoWarn>$(NoWarn);1591</NoWarn>
     <ApplicationDPIAware>true/PM</ApplicationDPIAware>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>..\app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
