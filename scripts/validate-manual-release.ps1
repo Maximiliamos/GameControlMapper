@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$ApplicationArchive,
     [Parameter(Mandatory)][string]$HarnessArchive,
     [Parameter(Mandatory)][string]$ExpectedVersion,
-    [Parameter(Mandatory)][string]$ExpectedCommit)
+    [Parameter(Mandatory)][string]$ExpectedCommit,
+    [string]$CandidateManifest)
 
 $ErrorActionPreference = 'Stop'
 try { $report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json }
@@ -15,6 +16,15 @@ if ($report.productVersion -ne $ExpectedVersion) { throw 'Wrong product version.
 if ($report.commitHash -ne $ExpectedCommit -or $report.applicationCommitHash -ne $ExpectedCommit -or $report.harnessCommitHash -ne $ExpectedCommit) { throw 'Wrong commit hash.' }
 if ((Get-FileHash -LiteralPath $ApplicationArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $report.applicationArchiveSha256) { throw 'Application archive hash mismatch.' }
 if ((Get-FileHash -LiteralPath $HarnessArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $report.harnessArchiveSha256) { throw 'Harness archive hash mismatch.' }
+if ($CandidateManifest) {
+    if (-not (Test-Path -LiteralPath $CandidateManifest)) { throw 'Candidate manifest is missing.' }
+    try { $candidate = Get-Content -LiteralPath $CandidateManifest -Raw | ConvertFrom-Json }
+    catch { throw "Malformed candidate manifest: $($_.Exception.Message)" }
+    if ($candidate.schemaVersion -ne '2.0' -or $candidate.version -ne $ExpectedVersion -or $candidate.commitHash -ne $ExpectedCommit) { throw 'Candidate manifest version or commit mismatch.' }
+    $candidateDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($CandidateManifest))
+    & (Join-Path $PSScriptRoot 'verify-release.ps1') -ArtifactsDirectory $candidateDirectory -Version $ExpectedVersion -ExpectedCommit $ExpectedCommit
+    if ($LASTEXITCODE) { throw 'Candidate artifact verification failed.' }
+}
 if ($report.protocolErrors.Count -gt 0) { throw 'Protocol errors are present.' }
 if ([int]$report.activeContactsAtEnd -ne 0) { throw 'Active contacts remain.' }
 
