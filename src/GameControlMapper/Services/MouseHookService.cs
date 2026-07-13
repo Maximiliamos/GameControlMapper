@@ -170,6 +170,7 @@ public sealed class MouseHookService : IDisposable
                 }
 
                 _lastPoint = data.pt;
+                if (_isolateCursorFromTouch && !captureMovement) RememberPhysicalCursor(data.pt);
                 if (captureMovement)
                 {
                     return new IntPtr(1);
@@ -222,7 +223,8 @@ public sealed class MouseHookService : IDisposable
         try
         {
             var point = Unpack(Interlocked.Read(ref _protectedCursorPosition));
-            NativeMethods.SetCursorPos(point.X, point.Y);
+            if (!NativeMethods.GetCursorPos(out var current) || current.X != point.X || current.Y != point.Y)
+                NativeMethods.SetCursorPos(point.X, point.Y);
         }
         finally
         {
