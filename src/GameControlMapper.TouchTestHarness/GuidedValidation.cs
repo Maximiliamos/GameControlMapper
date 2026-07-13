@@ -11,6 +11,22 @@ public enum ValidationStatus { NotStarted, InProgress, Passed, Failed, NotAvaila
 public enum ValidationVerdict { Passed, Failed, PassedWithUnverifiedEnvironments }
 public enum EnvironmentRequirement { None, HighDpi, MultipleMonitors, NegativeOrigin, MixedDpi }
 
+public sealed class ScenarioEvidence
+{
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset CompletedAt { get; set; }
+    public int DownBefore { get; set; }
+    public int MoveBefore { get; set; }
+    public int UpBefore { get; set; }
+    public int DownAfter { get; set; }
+    public int MoveAfter { get; set; }
+    public int UpAfter { get; set; }
+    public int EventCount { get; set; }
+    public int MaximumConcurrentContacts { get; set; }
+    public ValidationStatus AutomaticVerdict { get; set; }
+    public string AutomaticReason { get; set; } = "";
+}
+
 public sealed class ValidationScenario
 {
     public ValidationScenario(int id, string name, EnvironmentRequirement requirement = EnvironmentRequirement.None)
@@ -28,6 +44,9 @@ public sealed class ValidationScenario
     [JsonIgnore] public EnvironmentRequirement Requirement { get; init; }
     public bool EnvironmentOnly => Requirement != EnvironmentRequirement.None;
     public ValidationStatus Status { get; set; }
+    public ValidationStatus UserVerdict { get; set; }
+    public ValidationStatus FinalVerdict { get; set; }
+    public ScenarioEvidence? Evidence { get; set; }
     public string Comment { get; set; } = "";
 }
 
@@ -194,6 +213,7 @@ public sealed class GuidedValidationSession
     public static readonly string[] RequiredNames = Definitions.Select(definition => definition.Name).ToArray();
 
     private MonitorEnvironmentMetadata _environment;
+    private readonly Dictionary<int, ScenarioStart> _scenarioStarts = [];
 
     public GuidedValidationSession(MonitorEnvironmentMetadata? environment = null)
     {
@@ -204,6 +224,37 @@ public sealed class GuidedValidationSession
     public List<ValidationScenario> Scenarios { get; }
     public List<string> ProtocolErrors { get; } = [];
     public void SetEnvironment(MonitorEnvironmentMetadata environment) => _environment = environment;
+    public static bool RequiresMachineEvidence(int id) => id is 1 or 2 or 3 or 4 or 9 or 15 or 16;
+
+    public void BeginScenario(int id, TouchLifecycleTracker tracker)
+    {
+        _scenarioStarts[id] = new ScenarioStart(DateTimeOffset.Now, tracker.DownCount, tracker.MoveCount, tracker.UpCount);
+    }
+
+    public bool CanPass(int id, TouchLifecycleTracker tracker, out string reason)
+    {
+        if (!RequiresMachineEvidence(id)) { reason = "Manual evidence"; return true; }
+        var evidence = BuildEvidence(id, tracker);
+        reason = evidence.AutomaticReason;
+        return evidence.AutomaticVerdict == ValidationStatus.Passed;
+    }
+
+    public bool SetStatus(int id, ValidationStatus status, string? comment, TouchLifecycleTracker tracker, out string? error)
+    {
+        var scenario = Scenarios.Single(item => item.Id == id);
+        var evidence = BuildEvidence(id, tracker);
+        scenario.Evidence = evidence;
+        scenario.UserVerdict = status;
+        if (status == ValidationStatus.Passed && RequiresMachineEvidence(id) && evidence.AutomaticVerdict != ValidationStatus.Passed)
+        {
+            error = $"Недостаточно автоматического evidence: {evidence.AutomaticReason}";
+            scenario.FinalVerdict = ValidationStatus.Failed;
+            return false;
+        }
+        var accepted = SetStatus(id, status, comment, out error);
+        scenario.FinalVerdict = accepted ? status : ValidationStatus.Failed;
+        return accepted;
+    }
 
     public bool SetStatus(int id, ValidationStatus status, string? comment, out string? error)
     {
@@ -220,8 +271,67 @@ public sealed class GuidedValidationSession
             return false;
         }
         scenario.Status = status;
+        scenario.UserVerdict = status;
+        scenario.FinalVerdict = status;
         scenario.Comment = comment?.Trim() ?? "";
         return true;
+    }
+
+    private ScenarioEvidence BuildEvidence(int id, TouchLifecycleTracker tracker)
+    {
+        if (!_scenarioStarts.TryGetValue(id, out var start))
+            start = new ScenarioStart(DateTimeOffset.Now, tracker.DownCount, tracker.MoveCount, tracker.UpCount);
+        var events = tracker.Events.Where(item => item.Timestamp >= start.Timestamp).ToArray();
+        var protocolClean = events.All(item => item.ProtocolError is null);
+        var active = new HashSet<int>();
+        var maximum = 0;
+        foreach (var item in events)
+        {
+            if (item.State == HarnessTouchState.Down) active.Add(item.Id);
+            else if (item.State == HarnessTouchState.Up) active.Remove(item.Id);
+            maximum = Math.Max(maximum, active.Count);
+        }
+
+        bool CompleteLifecycle(int contactId) =>
+            events.Any(item => item.Id == contactId && item.State == HarnessTouchState.Down) &&
+            events.Any(item => item.Id == contactId && item.State == HarnessTouchState.Up);
+        var ids = events.Select(item => item.Id).Distinct().ToArray();
+        var completed = ids.Count(CompleteLifecycle);
+        var down = events.FirstOrDefault(item => item.State == HarnessTouchState.Down);
+        var up = down is null ? null : events.LastOrDefault(item => item.Id == down.Id && item.State == HarnessTouchState.Up);
+        var duration = down is null || up is null ? TimeSpan.Zero : up.Timestamp - down.Timestamp;
+        var hasMove = down is not null && events.Any(item => item.Id == down.Id && item.State == HarnessTouchState.Move);
+        var passed = protocolClean && tracker.ActiveContacts.Count == 0 && id switch
+        {
+            1 => completed >= 1,
+            2 => completed >= 1 && (hasMove || duration >= TimeSpan.FromMilliseconds(500)),
+            3 => completed >= 2,
+            4 => completed >= 1 && hasMove,
+            9 => completed >= 1 && hasMove && duration >= TimeSpan.FromMinutes(2),
+            15 => maximum >= 2,
+            16 => maximum >= 10,
+            _ => true
+        };
+        var reason = passed ? "Required lifecycle evidence is present" : id switch
+        {
+            1 => "Требуются Down и Up одного контакта",
+            2 => "Требуются Down, удержание/Update и Up",
+            3 => "Требуются два завершённых lifecycle",
+            4 => "Требуются Down, Move и Up",
+            9 => "Требуются Down, Move, Up и длительность не менее двух минут",
+            15 => "Требуются минимум два одновременных контакта",
+            16 => "Требуются десять одновременных контактов",
+            _ => "Manual evidence"
+        };
+        return new ScenarioEvidence
+        {
+            StartedAt = start.Timestamp, CompletedAt = DateTimeOffset.Now,
+            DownBefore = start.Down, MoveBefore = start.Move, UpBefore = start.Up,
+            DownAfter = tracker.DownCount, MoveAfter = tracker.MoveCount, UpAfter = tracker.UpCount,
+            EventCount = events.Length, MaximumConcurrentContacts = maximum,
+            AutomaticVerdict = passed ? ValidationStatus.Passed : ValidationStatus.Failed,
+            AutomaticReason = reason
+        };
     }
 
     private bool IsPhysicallyUnavailable(EnvironmentRequirement requirement) => requirement switch
@@ -281,4 +391,6 @@ public sealed class GuidedValidationSession
     private static string Hash(string path) => File.Exists(path)
         ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant()
         : "not supplied";
+
+    private sealed record ScenarioStart(DateTimeOffset Timestamp, int Down, int Move, int Up);
 }

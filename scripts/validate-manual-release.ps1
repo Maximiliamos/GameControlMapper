@@ -53,6 +53,14 @@ foreach ($id in $knownNameHashes.Keys) {
 $incomplete = @($scenarios | Where-Object { $_.status -in @('NotStarted','InProgress') })
 if ($incomplete.Count -gt 0) { throw 'Report contains incomplete scenarios.' }
 if ($scenarios | Where-Object { $_.status -eq 'Failed' }) { throw 'Report contains failed scenarios.' }
+$machineEvidenceIds = @(1,2,3,4,9,15,16)
+foreach ($id in $machineEvidenceIds) {
+    $scenario = @($scenarios | Where-Object { [int]$_.id -eq $id })[0]
+    if ($scenario.status -eq 'Passed') {
+        if ($null -eq $scenario.evidence -or $scenario.evidence.automaticVerdict -ne 'Passed' -or $scenario.userVerdict -ne 'Passed' -or $scenario.finalVerdict -ne 'Passed') { throw "Machine-verifiable scenario $id lacks accepted evidence." }
+        if ([int]$scenario.evidence.eventCount -le 0 -or [datetimeoffset]$scenario.evidence.completedAt -lt [datetimeoffset]$scenario.evidence.startedAt) { throw "Machine-verifiable scenario $id has malformed evidence." }
+    }
+}
 
 $monitors = @($report.monitors)
 if ($monitors.Count -eq 0 -or [int]$report.monitorCount -ne $monitors.Count) { throw 'Monitor metadata is missing or inconsistent.' }
