@@ -88,6 +88,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 `
 
 ## Приватность и данные
 
+Диагностический ZIP можно создать кнопкой «Диагностика» или без запуска mapping командой `GameControlMapper.exe --export-diagnostics <путь-к-zip>`.
+
 - профили и `.bak`: каталог `Profiles` рядом с EXE;
 - логи и crash fallback: `%LocalAppData%\GameControlMapper\Logs`;
 - телеметрии и сетевой отправки нет;

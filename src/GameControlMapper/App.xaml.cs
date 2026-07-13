@@ -1,4 +1,5 @@
 using System.Windows;
+using System.IO;
 using GameControlMapper.Services;
 using GameControlMapper.UI.Views;
 using GameControlMapper.ViewModels;
@@ -10,6 +11,8 @@ namespace GameControlMapper;
 public partial class App : System.Windows.Application
 {
     private ServiceProvider? _serviceProvider;
+    private Task? _startupOperation;
+    private bool _diagnosticOnly;
     private int _crashDispatch;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -24,6 +27,14 @@ public partial class App : System.Windows.Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         _serviceProvider.GetRequiredService<DpiAwarenessDiagnostics>().LogCurrentContext();
+
+        if (TryGetDiagnosticExportPath(e.Args, out var diagnosticPath))
+        {
+            _diagnosticOnly = true;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _startupOperation = ExportDiagnosticsAndShutdownAsync(diagnosticPath);
+            return;
+        }
 
         // Initialize Touch Backend and Scheduler
         var touchBackend = _serviceProvider.GetRequiredService<ITouchBackend>();
@@ -42,9 +53,36 @@ public partial class App : System.Windows.Application
         
     }
 
+    internal static bool TryGetDiagnosticExportPath(IReadOnlyList<string> args, out string path)
+    {
+        path = string.Empty;
+        if (args.Count != 2 || !string.Equals(args[0], "--export-diagnostics", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(args[1]))
+        {
+            return false;
+        }
+
+        path = Path.GetFullPath(args[1]);
+        return string.Equals(Path.GetExtension(path), ".zip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task ExportDiagnosticsAndShutdownAsync(string path)
+    {
+        try
+        {
+            await _serviceProvider!.GetRequiredService<DiagnosticExportService>().ExportAsync(path);
+            Shutdown(0);
+        }
+        catch (Exception ex)
+        {
+            _serviceProvider!.GetRequiredService<ILogger<App>>()
+                .LogError(ex, "Command-line diagnostic export failed");
+            Shutdown(-1);
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
-        if (_serviceProvider != null)
+        if (_serviceProvider != null && !_diagnosticOnly)
         {
             var touchScheduler = _serviceProvider.GetService<TouchScheduler>();
             _serviceProvider.GetService<InputMappingEngine>()?.StopAsync("application shutdown").Wait(TimeSpan.FromSeconds(3));

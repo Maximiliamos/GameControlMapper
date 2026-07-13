@@ -65,6 +65,23 @@ jobs:
           Set-Content (Join-Path $negative 'manifest.json') '{malformed'
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -ArtifactsDirectory $negative -Version $version -ExpectedCommit "${{ github.sha }}"
           if ($LASTEXITCODE -eq 0) { throw 'Malformed manifest was accepted' }
+      - name: Smoke diagnostic export from packaged application
+        shell: powershell
+        run: |
+          $version = "0.0.0-ci.${{ github.run_number }}"
+          $smoke = Join-Path $env:RUNNER_TEMP 'gcm-smoke'
+          $diagnostics = Join-Path $smoke 'diagnostics.zip'
+          Expand-Archive -LiteralPath (Join-Path 'ci-artifacts' "GameControlMapper-$version-win-x64.zip") -DestinationPath $smoke
+          $process = Start-Process -FilePath (Join-Path $smoke 'GameControlMapper.exe') -ArgumentList @('--export-diagnostics', $diagnostics) -WorkingDirectory $smoke -PassThru -Wait
+          if ($process.ExitCode -ne 0 -or !(Test-Path $diagnostics)) { throw 'Packaged diagnostic export failed' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($diagnostics)
+          try {
+            if (@($archive.Entries | Where-Object { $_.FullName -like '*.json' }).Count -ne 0) { throw 'Diagnostic ZIP contains JSON' }
+            $text = [string]::Join("`n", @($archive.Entries | ForEach-Object { $reader = [IO.StreamReader]::new($_.Open()); try { $reader.ReadToEnd() } finally { $reader.Dispose() } }))
+          } finally { $archive.Dispose() }
+          if ($text -match '(?i)virtualKey|vkCode|scanCode|KeyDown|KeyUp|MouseDown|MouseUp|Camera delta|Joystick center') { throw 'Diagnostic ZIP contains input history' }
+          if ($text -notmatch 'DPI awareness: PerMonitorV2') { throw 'Packaged process is not PerMonitorV2 aware' }
       - uses: actions/upload-artifact@v4
         with:
           name: verified-self-contained-beta
