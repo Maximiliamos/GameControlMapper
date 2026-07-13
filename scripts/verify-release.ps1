@@ -22,7 +22,7 @@ if ([int]$manifest.testCount -le 0 -or [int]$manifest.testCounters.total -ne [in
 foreach ($archive in $manifest.archives) {
     $path = Join-Path $directory $archive.file
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing archive $($archive.file)." }
-    if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $archive.sha256) { throw "SHA-256 mismatch: $($archive.file)." }
+    if ((Get-Sha256 -Path $path) -cne $archive.sha256) { throw "SHA-256 mismatch: $($archive.file)." }
     if ($archive.file -notmatch [regex]::Escape($Version)) { throw 'Archive name does not contain manifest version.' }
 }
 

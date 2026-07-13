@@ -70,8 +70,8 @@ try {
     Compress-Archive -Path (Join-Path $main '*') -DestinationPath $mainZip -CompressionLevel Optimal
     Compress-Archive -Path (Join-Path $harness '*') -DestinationPath $harnessZip -CompressionLevel Optimal
     $archives = @(
-        [ordered]@{ file=[IO.Path]::GetFileName($mainZip); sha256=(Get-FileHash $mainZip -Algorithm SHA256).Hash.ToLowerInvariant(); binary='GameControlMapper' },
-        [ordered]@{ file=[IO.Path]::GetFileName($harnessZip); sha256=(Get-FileHash $harnessZip -Algorithm SHA256).Hash.ToLowerInvariant(); binary='GameControlMapper.TouchTestHarness' })
+        [ordered]@{ file=[IO.Path]::GetFileName($mainZip); sha256=Get-Sha256 -Path $mainZip; binary='GameControlMapper' },
+        [ordered]@{ file=[IO.Path]::GetFileName($harnessZip); sha256=Get-Sha256 -Path $harnessZip; binary='GameControlMapper.TouchTestHarness' })
     $manifest = [ordered]@{
         schemaVersion='2.0'; product='Game Control Mapper'; version=$Version; commitHash=$CommitHash
         buildDateUtc=(Get-Date).ToUniversalTime().ToString('o'); ciRunIdentifier=$env:GITHUB_RUN_ID

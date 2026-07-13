@@ -8,14 +8,18 @@ param(
     [string]$CandidateManifest)
 
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'release-common.ps1')
+
+$ErrorActionPreference = 'Stop'
 try { $report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json }
 catch { throw "Invalid validation JSON: $($_.Exception.Message)" }
 
 if ($report.schemaVersion -ne '1.0') { throw 'Unsupported schema version.' }
 if ($report.productVersion -ne $ExpectedVersion) { throw 'Wrong product version.' }
 if ($report.commitHash -ne $ExpectedCommit -or $report.applicationCommitHash -ne $ExpectedCommit -or $report.harnessCommitHash -ne $ExpectedCommit) { throw 'Wrong commit hash.' }
-if ((Get-FileHash -LiteralPath $ApplicationArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $report.applicationArchiveSha256) { throw 'Application archive hash mismatch.' }
-if ((Get-FileHash -LiteralPath $HarnessArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $report.harnessArchiveSha256) { throw 'Harness archive hash mismatch.' }
+if ((Get-Sha256 -Path $ApplicationArchive) -ne $report.applicationArchiveSha256) { throw 'Application archive hash mismatch.' }
+if ((Get-Sha256 -Path $HarnessArchive) -ne $report.harnessArchiveSha256) { throw 'Harness archive hash mismatch.' }
 if ($CandidateManifest) {
     if (-not (Test-Path -LiteralPath $CandidateManifest)) { throw 'Candidate manifest is missing.' }
     try { $candidate = Get-Content -LiteralPath $CandidateManifest -Raw | ConvertFrom-Json }

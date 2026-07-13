@@ -1,5 +1,18 @@
 Set-StrictMode -Version Latest
 
+function Get-Sha256 {
+    param([Parameter(Mandatory)][string]$Path)
+    $stream = [IO.File]::OpenRead([IO.Path]::GetFullPath($Path))
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return -join ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') })
+    }
+    finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Get-ReleaseBinaryMetadata {
     param([Parameter(Mandatory)][string]$Directory,[Parameter(Mandatory)][string]$BaseName)
     $exe = Join-Path $Directory "$BaseName.exe"
@@ -14,8 +27,8 @@ function Get-ReleaseBinaryMetadata {
         assemblyVersion = $assemblyVersion
         fileVersion = $versionInfo.FileVersion
         informationalVersion = $versionInfo.ProductVersion
-        executableSha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-        assemblySha256 = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+        executableSha256 = Get-Sha256 -Path $exe
+        assemblySha256 = Get-Sha256 -Path $dll
     }
 }
 
