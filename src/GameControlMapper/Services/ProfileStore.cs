@@ -35,7 +35,18 @@ public sealed class ProfileStore : IProfileStore
             finally{if(File.Exists(temp))File.Delete(temp);}
         }finally{_saveGate.Release();}
     }
-    public Task DeleteAsync(string name,CancellationToken ct=default){var path=GetProfilePath(name);if(File.Exists(path))File.Delete(path);return Task.CompletedTask;}
+    public async Task DeleteAsync(string name,CancellationToken ct=default)
+    {
+        var path=GetProfilePath(name);
+        await _saveGate.WaitAsync(ct);
+        try
+        {
+            foreach(var candidate in new[]{path,path+".bak",path+".profile.tmp"})
+                if(File.Exists(candidate))File.Delete(candidate);
+            _logger.LogInformation("Profile and its recovery artifacts deleted: {Profile}",name);
+        }
+        finally{_saveGate.Release();}
+    }
     public async Task<string> ExportAsync(MapperProfile profile,string targetPath,CancellationToken ct=default){EnsureValid(profile);var path=Directory.Exists(targetPath)?Path.Combine(targetPath,SafeName(profile.Name)+".json"):targetPath;await File.WriteAllTextAsync(path,JsonSerializer.Serialize(profile,JsonOptions),ct);return path;}
     public async Task<MapperProfile> ImportAsync(string sourcePath,CancellationToken ct=default){var profile=await ReadValidatedAsync(sourcePath,ct);await SaveAsync(profile,ct);return profile;}
     public async Task<MapperProfile> LoadBackupAsync(string name,CancellationToken ct=default)=>await ReadValidatedAsync(GetProfilePath(name)+".bak",ct);

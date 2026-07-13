@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:viewModels="clr-namespace:GameControlMapper.ViewModels"
         Title="Game Control Mapper — настройка управления"
-        Width="1480"
-        Height="920"
+        Width="1560"
+        Height="960"
         MinWidth="1180"
         MinHeight="740"
         Background="{StaticResource ShellBackgroundBrush}"
@@ -19,39 +19,42 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="74" />
+            <RowDefinition Height="76" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="112" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="286" />
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="350" />
+            <ColumnDefinition Width="390" />
         </Grid.ColumnDefinitions>
 
         <Border Grid.Row="0"
                 Grid.ColumnSpan="3"
-                Background="#DD0D1118"
-                BorderBrush="#273244"
+                Background="#F20C1119"
+                BorderBrush="#2A384C"
                 BorderThickness="0,0,0,1">
-            <DockPanel Margin="12,0" LastChildFill="False">
+            <DockPanel Margin="16,0" LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <StackPanel Margin="0,0,14,0" VerticalAlignment="Center">
-                        <TextBlock Text="Game Control Mapper" FontSize="19" FontWeight="Bold" />
+                        <TextBlock Text="Game Control Mapper" FontSize="20" FontWeight="SemiBold" />
                         <TextBlock Text="Схемы управления для сенсорных игр"
                                    Foreground="{StaticResource MutedTextBrush}"
-                                   FontSize="11" />
+                                   FontSize="12" />
                     </StackPanel>
-                    <Button Content="＋ Новый"
+                    <Button Content="＋  Новый"
+                            Style="{StaticResource CompactButton}"
                             Command="{Binding NewProfileCommand}"
                             ToolTip="Создать новый профиль на основе схемы Tanks Blitz" />
-                    <Button Content="Сохранить"
+                    <Button Content="✓  Сохранить"
+                            Style="{StaticResource CompactButton}"
                             Command="{Binding SaveProfileCommand}"
                             ToolTip="Сохранить текущую схему и резервную копию предыдущей версии" />
-                    <Button Content="Импорт" Command="{Binding ImportProfileCommand}" />
-                    <Button Content="Экспорт" Command="{Binding ExportProfileCommand}" />
-                    <Button Content="Диагностика" Command="{Binding ExportDiagnosticsCommand}" />
-                    <Button Content="Статистика XVM"
+                    <Button Content="Импорт" Style="{StaticResource CompactButton}" Command="{Binding ImportProfileCommand}" />
+                    <Button Content="Экспорт" Style="{StaticResource CompactButton}" Command="{Binding ExportProfileCommand}" />
+                    <Button Content="Диагностика" Style="{StaticResource CompactButton}" Command="{Binding ExportDiagnosticsCommand}" />
+                    <Button Content="XVM"
+                            Style="{StaticResource CompactButton}"
                             Command="{Binding OpenBlitzXvmCommand}"
                             ToolTip="Запустить Blitz XVM или показать его уже открытое окно. Программа статистики работает отдельно от сенсорного ввода." />
                 </StackPanel>
@@ -65,14 +68,16 @@
                         <TextBlock Text="{Binding IsMappingActive, Converter={StaticResource BooleanLabelConverter}}"
                                    Foreground="{StaticResource AccentBrush}"
                                    HorizontalAlignment="Right"
-                                   FontSize="11" />
+                                   FontSize="12" />
                     </StackPanel>
                     <Button Content="▶ F8 Запустить"
+                            Style="{StaticResource PrimaryButton}"
                             Command="{Binding ActivateCommand}"
                             Background="#0E7490"
                             BorderBrush="#22D3EE"
                             ToolTip="Начать управление выбранным окном" />
                     <Button Content="■ F9 Остановить"
+                            Style="{StaticResource CompactButton}"
                             Command="{Binding DeactivateCommand}"
                             ToolTip="Немедленно завершить все активные касания" />
                 </StackPanel>
@@ -81,10 +86,10 @@
 
         <Border Grid.Row="1"
                 Grid.Column="0"
-                Background="#D9171B24"
-                BorderBrush="#273244"
+                Background="#F2121824"
+                BorderBrush="#2A384C"
                 BorderThickness="0,0,1,0"
-                Padding="12">
+                Padding="14">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -94,38 +99,36 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Text="1. Целевое окно игры" FontSize="16" FontWeight="Bold" />
+                <TextBlock Text="Целевое окно" Style="{StaticResource SectionTitle}" />
                 <StackPanel Grid.Row="1">
                     <TextBlock Text="{Binding TargetWindowStatus}"
                                TextWrapping="Wrap"
-                               Foreground="#FBBF24"
+                               Foreground="#FCD34D"
                                Margin="0,5" />
                     <ComboBox ItemsSource="{Binding TargetWindows}"
                               SelectedItem="{Binding SelectedTargetWindow, Mode=TwoWay}"
                               DisplayMemberPath="DisplayName"
                               ToolTip="Выберите окно Android Device или окно игры" />
                     <Button Content="↻ Обновить список окон"
+                            Style="{StaticResource CompactButton}"
                             Command="{Binding RefreshWindowsCommand}"
                             ToolTip="Нажмите после запуска игры или эмулятора" />
                 </StackPanel>
 
-                <Border Grid.Row="2"
+                <Border Grid.Row="2" Style="{StaticResource Card}"
                         Margin="0,10,0,12"
                         Padding="9"
-                        Background="#202C3D"
-                        BorderBrush="#36506D"
-                        BorderThickness="1"
-                        CornerRadius="8">
+                        Background="#18283A"
+                        BorderBrush="#38617E">
                     <StackPanel>
-                        <TextBlock Text="2. Расставьте элементы"
-                                   FontSize="15"
-                                   FontWeight="Bold" />
+                         <TextBlock Text="Редактор управления" Style="{StaticResource SectionTitle}" />
                         <TextBlock Text="Игра останется видна, а схема откроется полупрозрачным слоем поверх неё."
                                    Margin="0,4,0,8"
                                    Foreground="#B5C5D9"
                                    TextWrapping="Wrap"
                                    FontSize="12" />
                         <Button Content="✦ Редактировать поверх игры"
+                                Style="{StaticResource PrimaryButton}"
                                 Command="{Binding OpenControlEditorCommand}"
                                 MinHeight="48"
                                 FontSize="14"
@@ -135,12 +138,12 @@
                         <TextBlock Text="F11 — открыть редактор"
                                    HorizontalAlignment="Center"
                                    Foreground="#8296AF"
-                                   FontSize="11" />
+                                   FontSize="12" />
                     </StackPanel>
                 </Border>
 
                 <StackPanel Grid.Row="3">
-                    <TextBlock Text="Профили" FontSize="16" FontWeight="Bold" />
+                    <TextBlock Text="Профили" Style="{StaticResource SectionTitle}" />
                     <TextBlock Text="Выберите схему для игры"
                                Foreground="{StaticResource MutedTextBrush}"
                                Margin="0,2,0,8" />
@@ -149,7 +152,8 @@
                 </StackPanel>
 
                 <Button Grid.Row="4"
-                        Content="Удалить профиль"
+                        Content="Удалить выбранный профиль"
+                        Style="{StaticResource DangerButton}"
                         Command="{Binding DeleteProfileCommand}"
                         ToolTip="Удаление нельзя отменить" />
             </Grid>
@@ -157,12 +161,12 @@
 
         <Grid Grid.Row="1" Grid.Column="1" Background="#660B0F15">
             <Grid.RowDefinitions>
-                <RowDefinition Height="122" />
+                <RowDefinition Height="116" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Border Background="#CC111722"
-                    BorderBrush="#273244"
+            <Border Background="#F2111824"
+                    BorderBrush="#2A384C"
                     BorderThickness="0,0,0,1"
                     Padding="10">
                 <StackPanel>
@@ -170,7 +174,7 @@
                         <ComboBox Width="205"
                                   ItemsSource="{Binding BindingKinds}"
                                   SelectedItem="{Binding NewBindingKind}"
-                                  ToolTip="Тип нового элемента">
+                                  ToolTip="Выберите тип элемента, затем нажмите «Добавить»">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding Converter={StaticResource BindingKindLabelConverter}}" />
@@ -178,6 +182,7 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <Button Content="＋ Добавить"
+                                Style="{StaticResource PrimaryButton}"
                                 Command="{Binding AddBindingCommand}"
                                 ToolTip="Добавить элемент в рабочее поле" />
                         <Button Content="Копировать" Command="{Binding CopyBindingCommand}" />
@@ -199,11 +204,11 @@
                 </StackPanel>
             </Border>
 
-            <Grid Grid.Row="1" Background="#151C28" ClipToBounds="True">
+            <Grid Grid.Row="1" Background="#0E1520" ClipToBounds="True">
                 <Viewbox Stretch="Uniform" StretchDirection="Both" Margin="10">
                     <Canvas Width="{Binding CurrentProfile.ResolutionWidth}"
                             Height="{Binding CurrentProfile.ResolutionHeight}"
-                            Background="#151C28"
+                            Background="#131D2B"
                             MouseDown="EditorCanvas_MouseDown">
                         <ItemsControl Width="{Binding CurrentProfile.ResolutionWidth}"
                                       Height="{Binding CurrentProfile.ResolutionHeight}"
@@ -284,21 +289,29 @@
                         IsHitTestVisible="False">
                     <TextBlock Text="Перетаскивание — переместить  •  Голубой маркер — изменить размер"
                                Foreground="#B9C9DB"
-                               FontSize="11" />
+                               FontSize="12" />
                 </Border>
             </Grid>
         </Grid>
 
         <Border Grid.Row="1"
                 Grid.Column="2"
-                Background="#D9171B24"
-                BorderBrush="#273244"
+                Background="#F2121824"
+                BorderBrush="#2A384C"
                 BorderThickness="1,0,0,0"
-                Padding="14">
+                Padding="16">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="Настройка выбранного элемента" FontSize="16" FontWeight="Bold" />
-                    <Expander Header="Как настроить управление" IsExpanded="True" Margin="0,8,0,12">
+                    <TextBlock Text="Инспектор" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,10" />
+                    <Border Style="{StaticResource Card}" Background="#122B36" BorderBrush="#1F6C83" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Режим мыши" FontWeight="SemiBold" Foreground="#7DD3FC" />
+                            <TextBlock Text="{Binding MouseModeStatus}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="Ctrl переключает режим. В свободном режиме ЛКМ доступна меню игры."
+                                       Style="{StaticResource Caption}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Expander Header="Как настроить управление" IsExpanded="False" Margin="0,0,0,12">
                         <Border Background="#202938" CornerRadius="6" Padding="10">
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="#D7E3F4"
@@ -306,7 +319,7 @@
                         </Border>
                     </Expander>
 
-                    <Expander Header="Статистика Blitz XVM" IsExpanded="True" Margin="0,0,0,12">
+                    <Expander Header="Статистика Blitz XVM" IsExpanded="False" Margin="0,0,0,12">
                         <Border Background="#202938" CornerRadius="6" Padding="10">
                             <StackPanel>
                                 <TextBlock Text="{Binding OlenemerStatus}" Foreground="#93C5FD" />
@@ -328,7 +341,7 @@
                     <Expander Header="Камера и чувствительность" IsExpanded="True" Margin="0,0,0,12">
                         <Border Background="#202938" CornerRadius="6" Padding="10">
                             <StackPanel>
-                                <TextBlock Text="Ctrl включает обзор, повторный Ctrl возвращает обычную мышь. Изменения применяются к текущему профилю и сохраняются кнопкой «Сохранить»."
+                                <TextBlock Text="Ctrl включает боевой режим: обзор и ЛКМ «Огонь». Повторный Ctrl возвращает свободную мышь. Изменения сохраняются кнопкой «Сохранить»."
                                            TextWrapping="Wrap"
                                            Foreground="#D7E3F4"
                                            Margin="0,0,0,8" />
@@ -365,6 +378,7 @@
                         </Border>
                     </Expander>
 
+                    <TextBlock Text="Параметры элемента" Style="{StaticResource SectionTitle}" Margin="0,4,0,10" />
                     <TextBlock Text="Название профиля" Foreground="{StaticResource MutedTextBrush}" />
                     <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Понятное название игры или схемы" />
@@ -400,7 +414,7 @@
                     </DockPanel>
                     <TextBlock Text="Нажмите REC, а затем нужную клавишу. Для сочетания удерживайте Ctrl, Shift или Alt."
                                Foreground="{StaticResource MutedTextBrush}"
-                               FontSize="11"
+                               FontSize="12"
                                TextWrapping="Wrap"
                                Margin="0,-6,0,9" />
 
@@ -444,18 +458,16 @@
                 Background="#DD0D1118"
                 BorderBrush="#273244"
                 BorderThickness="0,1,0,0"
-                Padding="12,8">
-            <DockPanel>
-                <DockPanel DockPanel.Dock="Top">
-                    <TextBlock Text="Журнал работы" FontWeight="Bold" />
-                    <TextBlock Text="  При проблемах сначала проверьте выбранное целевое окно."
-                               Foreground="{StaticResource MutedTextBrush}" />
-                    <Button DockPanel.Dock="Right"
+                Padding="12,4">
+            <Expander Header="Журнал работы и диагностика" IsExpanded="False">
+                <DockPanel Margin="0,6,0,4" Height="132">
+                    <Button DockPanel.Dock="Top" HorizontalAlignment="Right"
+                            Style="{StaticResource CompactButton}"
                             Content="Копировать журнал"
                             Command="{Binding CopyLogsCommand}" />
+                    <ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12" />
                 </DockPanel>
-                <ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12" />
-            </DockPanel>
+            </Expander>
         </Border>
     </Grid>
 </Window>

@@ -8,12 +8,12 @@
         <converters:BindingKindLabelConverter x:Key="BindingKindLabelConverter" />
         <converters:FlexibleDoubleConverter x:Key="FlexibleDoubleConverter" />
 
-        <Color x:Key="ShellBackgroundColor">#10131A</Color>
-        <Color x:Key="PanelBackgroundColor">#171B24</Color>
-        <Color x:Key="PanelAltColor">#202633</Color>
-        <Color x:Key="AccentColor">#4CC9F0</Color>
-        <Color x:Key="TextColor">#E8EDF5</Color>
-        <Color x:Key="MutedTextColor">#9AA7B8</Color>
+        <Color x:Key="ShellBackgroundColor">#0B0F17</Color>
+        <Color x:Key="PanelBackgroundColor">#121824</Color>
+        <Color x:Key="PanelAltColor">#1A2332</Color>
+        <Color x:Key="AccentColor">#38BDF8</Color>
+        <Color x:Key="TextColor">#F3F7FC</Color>
+        <Color x:Key="MutedTextColor">#A9B7CA</Color>
 
         <SolidColorBrush x:Key="ShellBackgroundBrush" Color="{StaticResource ShellBackgroundColor}" />
         <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}" />
@@ -25,10 +25,14 @@
         <SolidColorBrush x:Key="DisabledBackgroundBrush" Color="#18202B" />
         <SolidColorBrush x:Key="DisabledBorderBrush" Color="#2A3444" />
         <SolidColorBrush x:Key="DisabledTextBrush" Color="#8290A3" />
+        <SolidColorBrush x:Key="CardBackgroundBrush" Color="#151D2A" />
+        <SolidColorBrush x:Key="CardBorderBrush" Color="#2A384C" />
+        <SolidColorBrush x:Key="SuccessBrush" Color="#34D399" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#FB7185" />
 
         <Style TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="14" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -42,8 +46,8 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="FontFamily" Value="Segoe UI Semibold" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="MinHeight" Value="38" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -51,7 +55,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
+                                CornerRadius="7"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -89,8 +93,8 @@
             <Setter Property="Background" Value="#CC111722" />
             <Setter Property="BorderBrush" Value="#334155" />
             <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="MinHeight" Value="38" />
             <Setter Property="SelectionBrush" Value="#0E7490" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -99,7 +103,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3"
+                                CornerRadius="6"
                                 SnapsToDevicePixels="True">
                             <ScrollViewer x:Name="PART_ContentHost"
                                           Padding="{TemplateBinding Padding}"
@@ -130,8 +134,8 @@
         <Style TargetType="ComboBox">
             <Setter Property="Margin" Value="0,3,0,10" />
             <Setter Property="Padding" Value="9,6" />
-            <Setter Property="MinHeight" Value="36" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="FontSize" Value="14" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="Background" Value="{StaticResource FieldBackgroundBrush}" />
             <Setter Property="BorderBrush" Value="#334155" />
@@ -144,7 +148,7 @@
                                     Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="3"
+                                    CornerRadius="6"
                                     SnapsToDevicePixels="True" />
                             <ToggleButton Background="Transparent"
                                           BorderThickness="0"
@@ -368,6 +372,44 @@
             <Setter Property="BorderBrush" Value="#41506A" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="8,6" />
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#087EA4" />
+            <Setter Property="BorderBrush" Value="#38BDF8" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="#FFD6DD" />
+            <Setter Property="Background" Value="#3A1D28" />
+            <Setter Property="BorderBrush" Value="#8B3A50" />
+        </Style>
+
+        <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="9,5" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Margin" Value="3" />
+        </Style>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
+        <Style x:Key="Caption" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
     </Application.Resources>
 </Application>

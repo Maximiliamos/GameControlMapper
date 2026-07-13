@@ -34,6 +34,30 @@ public sealed class WindowCoordinateIntegrationTests
     }
 
     [Fact]
+    public async Task LeftMouseFire_IsEnabledOnlyWhileCameraCombatModeIsActive()
+    {
+        using var fixture = new Fixture(new(0, 0, 1920, 1080));
+        fixture.StartCameraWithFire();
+
+        Assert.False(fixture.MouseHook.ShouldSuppressButton!(NativeMethods.VK_LBUTTON));
+        fixture.PressMouse(NativeMethods.VK_LBUTTON);
+        Assert.Empty(fixture.Contacts.ActiveContacts);
+        fixture.ReleaseMouse(NativeMethods.VK_LBUTTON);
+
+        fixture.Press(Key.LeftCtrl);
+        fixture.Release(Key.LeftCtrl);
+        Assert.True(fixture.MouseHook.ShouldSuppressButton!(NativeMethods.VK_LBUTTON));
+        fixture.PressMouse(NativeMethods.VK_LBUTTON);
+        Assert.Equal(2, fixture.Contacts.ActiveContacts.Count);
+
+        fixture.Press(Key.LeftCtrl);
+        fixture.Release(Key.LeftCtrl);
+        Assert.False(fixture.MouseHook.ShouldSuppressButton!(NativeMethods.VK_LBUTTON));
+        Assert.Empty(fixture.Contacts.ActiveContacts);
+        await fixture.Mapping.StopAsync();
+    }
+
+    [Fact]
     public async Task SelectedWindowOrigin_IsAddedToMappedTouch()
     {
         using var fixture = new Fixture(new(100, 200, 2000, 1000));
@@ -286,6 +310,19 @@ public sealed class WindowCoordinateIntegrationTests
             Mapping.Start();
         }
 
+        public void StartCameraWithFire()
+        {
+            Profile.ResolutionWidth = 1920;
+            Profile.ResolutionHeight = 1080;
+            Profile.Bindings =
+            [
+                new ControlBinding { Name = "Камера", Hotkey = "LeftCtrl", Kind = BindingKind.Aim, X = 910, Y = 490, Width = 100, Height = 100 },
+                new ControlBinding { Name = "Огонь", Hotkey = "MouseLeft", Kind = BindingKind.MouseArea, X = 1600, Y = 800, Width = 100, Height = 100 }
+            ];
+            Mapping.SetProfile(Profile);
+            Mapping.Start();
+        }
+
         public void Press(Key key)
         {
             var method = typeof(InputMappingEngine).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -301,6 +338,12 @@ public sealed class WindowCoordinateIntegrationTests
         public void PressMouse(int virtualKey)
         {
             var method = typeof(InputMappingEngine).GetMethod("OnMouseButtonDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            method.Invoke(Mapping, [null, virtualKey]);
+        }
+
+        public void ReleaseMouse(int virtualKey)
+        {
+            var method = typeof(InputMappingEngine).GetMethod("OnMouseButtonUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
             method.Invoke(Mapping, [null, virtualKey]);
         }
 

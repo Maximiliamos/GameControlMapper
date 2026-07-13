@@ -5,7 +5,7 @@ namespace GameControlMapper.Services;
 
 public sealed class CameraMouseLookService : IDisposable
 {
-    private const double RebaseThresholdRatio = 0.78;
+    private const double RebaseThresholdRatio = 0.92;
     private const double MaximumPendingDelta = 4096;
 
     private readonly TouchEngine _touch;
@@ -25,6 +25,9 @@ public sealed class CameraMouseLookService : IDisposable
     private double _vy;
     private double _pendingDx;
     private double _pendingDy;
+    private double _frameDx;
+    private double _frameDy;
+    private double _effectiveRadius;
     private PhysicalScreenPoint _anchor;
     private long _generation;
     private long _lastTimestamp;
@@ -46,6 +49,7 @@ public sealed class CameraMouseLookService : IDisposable
         _time = time ?? TimeProvider.System;
         _target = target;
         _scheduler = scheduler;
+        if (_scheduler is not null) _scheduler.FrameSent += OnTouchFrameSent;
     }
 
     public event EventHandler<bool>? ActiveChanged;
@@ -78,10 +82,12 @@ public sealed class CameraMouseLookService : IDisposable
 
             _settings = settings;
             _anchor = new PhysicalScreenPoint((int)Math.Round(anchorX), (int)Math.Round(anchorY));
+            _effectiveRadius = CalculateEffectiveRadius(settings, target, _anchor);
             _x = _anchor.X;
             _y = _anchor.Y;
             _vx = _vy = 0;
             _pendingDx = _pendingDy = 0;
+            _frameDx = _frameDy = 0;
             _rebasing = false;
             _generation = target?.Generation ?? ++_nextGeneration;
             _lastTimestamp = _time.GetTimestamp();
@@ -98,6 +104,7 @@ public sealed class CameraMouseLookService : IDisposable
             Interlocked.Exchange(ref _rebaseCount, 0);
             _active = true;
             started = true;
+            _logger.LogInformation("Camera started with effective drag radius {Radius:F0}px", _effectiveRadius);
         }
 
         if (started) ActiveChanged?.Invoke(this, true);
@@ -106,12 +113,41 @@ public sealed class CameraMouseLookService : IDisposable
 
     public void OnMouseMove(int dx, int dy)
     {
-        lock (_gate) ProcessMoveLocked(dx, dy, _generation);
+        QueueOrProcessMove(dx, dy, null);
     }
 
     public void OnMouseMove(int dx, int dy, long generation)
     {
-        lock (_gate) ProcessMoveLocked(dx, dy, generation);
+        QueueOrProcessMove(dx, dy, generation);
+    }
+
+    private void QueueOrProcessMove(int dx, int dy, long? generation)
+    {
+        lock (_gate)
+        {
+            var expectedGeneration = generation ?? _generation;
+            if (!_active || _disposed || expectedGeneration != _generation) return;
+            if (_scheduler is null)
+            {
+                ProcessMoveLocked(dx, dy, expectedGeneration);
+                return;
+            }
+
+            _frameDx = Math.Clamp(_frameDx + dx, -MaximumPendingDelta, MaximumPendingDelta);
+            _frameDy = Math.Clamp(_frameDy + dy, -MaximumPendingDelta, MaximumPendingDelta);
+        }
+    }
+
+    private void OnTouchFrameSent(object? sender, EventArgs e)
+    {
+        lock (_gate)
+        {
+            if (!_active || _disposed) return;
+            var dx = _frameDx;
+            var dy = _frameDy;
+            _frameDx = _frameDy = 0;
+            if (dx != 0 || dy != 0) ProcessMoveLocked(dx, dy, _generation);
+        }
     }
 
     private void ProcessMoveLocked(double dx, double dy, long generation)
@@ -151,7 +187,7 @@ public sealed class CameraMouseLookService : IDisposable
         var ox = _x - _anchor.X;
         var oy = _y - _anchor.Y;
         var distance = Math.Sqrt(ox * ox + oy * oy);
-        var radius = Math.Max(24, _settings.DragRadius);
+        var radius = Math.Max(8, _effectiveRadius);
         var threshold = radius * RebaseThresholdRatio;
         if (distance >= threshold && distance > 0)
         {
@@ -202,6 +238,7 @@ public sealed class CameraMouseLookService : IDisposable
 
             // Send old Up and new Down atomically before applying accumulated movement.
             await PumpFrameAsync(cancellationToken).ConfigureAwait(false);
+            var sendContinuationFrame = false;
             lock (_gate)
             {
                 if (!_active || _disposed || generation != _generation || !ReferenceEquals(_lease, nextLease)) return;
@@ -211,15 +248,32 @@ public sealed class CameraMouseLookService : IDisposable
                 _pendingDx = _pendingDy = 0;
                 _rebasing = false;
                 _lastTimestamp = _time.GetTimestamp();
-                if (pendingDx != 0 || pendingDy != 0) ProcessMoveLocked(pendingDx, pendingDy, generation);
+                if (pendingDx != 0 || pendingDy != 0)
+                {
+                    ProcessMoveLocked(pendingDx, pendingDy, generation);
+                    sendContinuationFrame = true;
+                }
+                else if (_lease is not null && (Math.Abs(_vx) > 0.001 || Math.Abs(_vy) > 0.001))
+                {
+                    var threshold = Math.Max(8, _effectiveRadius) * RebaseThresholdRatio;
+                    var length = Math.Sqrt(_vx * _vx + _vy * _vy);
+                    var scale = length > threshold * 0.25 ? threshold * 0.25 / length : 1;
+                    _x = _anchor.X + _vx * scale;
+                    _y = _anchor.Y + _vy * scale;
+                    _touch.MoveTouch(_lease, _x, _y);
+                    sendContinuationFrame = true;
+                }
             }
+            if (sendContinuationFrame) await PumpFrameAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
         catch (Exception ex)
         {
-            lock (_gate) FailCycleLocked("Camera contact rebase failed.", ex);
+            var notify = false;
+            lock (_gate) notify = FailCycleLocked("Camera contact rebase failed.", ex);
+            if (notify) ActiveChanged?.Invoke(this, false);
         }
     }
 
@@ -237,8 +291,9 @@ public sealed class CameraMouseLookService : IDisposable
         await Task.Delay(12, cancellationToken).ConfigureAwait(false);
     }
 
-    private void FailCycleLocked(string message, Exception? exception = null)
+    private bool FailCycleLocked(string message, Exception? exception = null)
     {
+        var changed = _active;
         var lease = _lease;
         _lease = null;
         _rebasing = false;
@@ -249,7 +304,7 @@ public sealed class CameraMouseLookService : IDisposable
         if (lease is not null) _touch.EndTouch(lease);
         if (exception is null) _logger.LogError("{Message}", message);
         else _logger.LogError(exception, "{Message}", message);
-        ActiveChanged?.Invoke(this, false);
+        return changed;
     }
 
     public void Stop()
@@ -267,6 +322,7 @@ public sealed class CameraMouseLookService : IDisposable
             _active = false;
             _rebasing = false;
             _pendingDx = _pendingDy = 0;
+            _frameDx = _frameDy = 0;
             _generation = 0;
         }
 
@@ -285,5 +341,22 @@ public sealed class CameraMouseLookService : IDisposable
         }
 
         Stop();
+        if (_scheduler is not null) _scheduler.FrameSent -= OnTouchFrameSent;
+    }
+
+    private static double CalculateEffectiveRadius(
+        CameraSettings settings, TargetWindowSession? target, PhysicalScreenPoint anchor)
+    {
+        var requested = Math.Max(24, settings.DragRadius);
+        if (target is null) return requested;
+        var rect = target.ClientRect;
+        var right = rect.Left + rect.Width;
+        var bottom = rect.Top + rect.Height;
+        var available = Math.Min(
+            Math.Min(anchor.X - rect.Left, right - anchor.X),
+            Math.Min(anchor.Y - rect.Top, bottom - anchor.Y)) - 16;
+        if (available <= 8) return Math.Max(8, available);
+        var centralWorkArea = Math.Min(rect.Width, rect.Height) * 0.32;
+        return Math.Min(available, Math.Max(requested, centralWorkArea));
     }
 }

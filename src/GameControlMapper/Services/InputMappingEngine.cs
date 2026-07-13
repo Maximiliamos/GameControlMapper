@@ -81,8 +81,10 @@ public sealed class InputMappingEngine : IDisposable
         :this(keyboardHook,mouseHook,cameraMouseLook,inputSimulator,touchEngine,touchScheduler,hotkeyParser,targetSession,transformer,logger,activationMonitor,allocator,diagnostics){}
 
     public bool IsActive { get; private set; }
+    public bool IsCameraControlActive => _cameraMouseLook.IsActive;
 
     public event EventHandler<bool>? ActiveChanged;
+    public event EventHandler<bool>? CameraControlActiveChanged;
     public event EventHandler? OverlayToggleRequested;
     public event EventHandler? EditorRequested;
 
@@ -227,7 +229,9 @@ public sealed class InputMappingEngine : IDisposable
         var buttons = new HashSet<int>();
         if (_profile is not null)
         {
-            foreach (var binding in _profile.Bindings.Where(b => b.IsActive && !b.UseNativeInput))
+            foreach (var binding in _profile.Bindings.Where(b =>
+                         b.IsActive && !b.UseNativeInput &&
+                         (_cameraMouseLook.IsActive || !IsLeftMouseArea(b))))
             {
                 var token = binding.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
                 var vk = token is null ? 0 : _hotkeyParser.ToVirtualKey(token);
@@ -362,7 +366,9 @@ public sealed class InputMappingEngine : IDisposable
         }
 
         var matches = _profile.Bindings
-            .Where(binding => binding.IsActive && !binding.UseNativeInput && _hotkeyParser.Matches(binding.Hotkey, virtualKey, _pressedKeys))
+            .Where(binding => binding.IsActive && !binding.UseNativeInput &&
+                              (_cameraMouseLook.IsActive || !IsLeftMouseArea(binding)) &&
+                              _hotkeyParser.Matches(binding.Hotkey, virtualKey, _pressedKeys))
             .OrderByDescending(binding => binding.Priority)
             .ToArray();
 
@@ -653,9 +659,37 @@ public sealed class InputMappingEngine : IDisposable
 
     private void OnCameraActiveChanged(object? sender, bool active)
     {
-        if (active) return;
-        _mouseHook.CaptureMovement = false;
-        _mouseHook.ResetMovementTracking();
+        lock (_gate)
+        {
+            if (!active)
+            {
+                _mouseHook.CaptureMovement = false;
+                _mouseHook.ResetMovementTracking();
+                ReleaseLeftMouseAreasLocked();
+            }
+
+            var session = _targetSession.Current;
+            if (IsActive && session is { IsActive: true }) PublishInputPermission(session.Generation);
+        }
+
+        CameraControlActiveChanged?.Invoke(this, active);
+    }
+
+    private bool IsLeftMouseArea(ControlBinding binding) =>
+        binding.Kind == BindingKind.MouseArea &&
+        binding.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(_hotkeyParser.ToVirtualKey)
+            .Contains(NativeMethods.VK_LBUTTON);
+
+    private void ReleaseLeftMouseAreasLocked()
+    {
+        if (_profile is null) return;
+        foreach (var binding in _profile.Bindings.Where(IsLeftMouseArea).ToArray())
+        {
+            if (!_activeMouseAreas.Remove(binding.Id, out var state)) continue;
+            _touchEngine.EndTouch(state.Lease);
+            _logger.LogInformation("MouseArea '{Name}' released because camera combat mode was disabled.", binding.Name);
+        }
     }
 
     private bool TryScalePointToTarget(double x, double y, out PhysicalScreenPoint point)

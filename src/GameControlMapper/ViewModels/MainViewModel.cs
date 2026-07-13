@@ -24,6 +24,7 @@ public sealed class MainViewModel : ObservableObject
     private BindingViewModel? _selectedBinding;
     private ControlBinding? _clipboardBinding;
     private bool _isMappingActive;
+    private bool _isCameraControlActive;
     private BindingKind _newBindingKind = BindingKind.Tap;
     private GameWindowInfo? _selectedTargetWindow;
 
@@ -74,6 +75,7 @@ public sealed class MainViewModel : ObservableObject
                 RaiseOnUi(() => HideOverlayRequested?.Invoke(this, EventArgs.Empty));
             }
         };
+        _mappingEngine.CameraControlActiveChanged += (_, active) => IsCameraControlActive = active;
         _mappingEngine.OverlayToggleRequested += (_, _) => RaiseOnUi(() => ToggleOverlayRequested?.Invoke(this, EventArgs.Empty));
         _mappingEngine.EditorRequested += (_, _) => RaiseOnUi(() => EditorRequested?.Invoke(this, EventArgs.Empty));
         _ = InitializeAsync();
@@ -150,10 +152,9 @@ public sealed class MainViewModel : ObservableObject
         get => _selectedProfileName;
         set
         {
-            if (SetProperty(ref _selectedProfileName, value) && value is not null)
-            {
-                LoadProfileCommand.Execute(value);
-            }
+            if (!SetProperty(ref _selectedProfileName, value)) return;
+            DeleteProfileCommand.RaiseCanExecuteChanged();
+            if (value is not null) LoadProfileCommand.Execute(value);
         }
     }
 
@@ -227,6 +228,20 @@ public sealed class MainViewModel : ObservableObject
         get => _isMappingActive;
         private set => RaiseOnUi(() => SetProperty(ref _isMappingActive, value));
     }
+
+    public bool IsCameraControlActive
+    {
+        get => _isCameraControlActive;
+        private set => RaiseOnUi(() =>
+        {
+            if (!SetProperty(ref _isCameraControlActive, value)) return;
+            OnPropertyChanged(nameof(MouseModeStatus));
+        });
+    }
+
+    public string MouseModeStatus => IsCameraControlActive
+        ? "Боевой режим: камера и ЛКМ активны"
+        : "Свободная мышь: ЛКМ работает в меню";
 
     public void ApplySelectedArea(Rect area)
     {
@@ -678,20 +693,30 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task DeleteProfileAsync()
     {
-        if (SelectedProfileName is null)
-        {
-            return;
-        }
+        var profileName = SelectedProfileName;
+        if (profileName is null) return;
+        var confirmation = System.Windows.MessageBox.Show(
+            $"Удалить профиль «{profileName}»? Это действие нельзя отменить.",
+            "Удаление профиля", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes) return;
 
-        await _profileStore.DeleteAsync(SelectedProfileName);
-        await RefreshProfilesAsync();
-        if (Profiles.Count == 0)
+        try
         {
-            await NewProfileAsync();
+            await _profileStore.DeleteAsync(profileName);
+            _selectedProfileName = null;
+            OnPropertyChanged(nameof(SelectedProfileName));
+            DeleteProfileCommand.RaiseCanExecuteChanged();
+            await RefreshProfilesAsync();
+            if (Profiles.Count == 0) await NewProfileAsync();
+            else SelectedProfileName = Profiles[0];
+            _logger.LogInformation("Profile deleted: {Profile}", profileName);
         }
-        else
+        catch (Exception ex)
         {
-            SelectedProfileName = Profiles[0];
+            _logger.LogError(ex, "Profile deletion failed: {Profile}", profileName);
+            System.Windows.MessageBox.Show("Не удалось удалить профиль. Подробности записаны в журнал.",
+                "Удаление профиля", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -962,6 +987,7 @@ public sealed class MainViewModel : ObservableObject
             _selectedProfileName = selectName;
             OnPropertyChanged(nameof(SelectedProfileName));
         }
+        DeleteProfileCommand.RaiseCanExecuteChanged();
     }
 
     private static void RaiseOnUi(Action action)
