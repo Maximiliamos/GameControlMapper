@@ -315,7 +315,7 @@
                                FontSize="11"
                                TextWrapping="Wrap"
                                Margin="0,-6,0,9" />
-                    <UniformGrid Columns="3" Margin="0,-3,0,9">
+                    <UniformGrid Columns="5" Margin="0,-3,0,9">
                         <Button Style="{StaticResource CompactButton}"
                                 Content="ЛКМ"
                                 Tag="MouseLeft"
@@ -334,6 +334,18 @@
                                 IsEnabled="{Binding SelectedBinding.CanEditHotkey}"
                                 Click="MouseHotkeyButton_Click"
                                 ToolTip="Средняя кнопка мыши" />
+                        <Button Style="{StaticResource CompactButton}"
+                                Content="X1"
+                                Tag="MouseX1"
+                                IsEnabled="{Binding SelectedBinding.CanEditHotkey}"
+                                Click="MouseHotkeyButton_Click"
+                                ToolTip="Первая боковая кнопка мыши" />
+                        <Button Style="{StaticResource CompactButton}"
+                                Content="X2"
+                                Tag="MouseX2"
+                                IsEnabled="{Binding SelectedBinding.CanEditHotkey}"
+                                Click="MouseHotkeyButton_Click"
+                                ToolTip="Вторая боковая кнопка мыши" />
                     </UniformGrid>
 
                     <UniformGrid Columns="2">

@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using GameControlMapper.Services;
+using GameControlMapper.Win32;
 using Xunit;
 
 namespace GameControlMapper.Tests;
@@ -24,5 +25,17 @@ public sealed class HotkeyParserTests
 
         Assert.True(parser.Matches("Ctrl+Q", q, new HashSet<int> { ctrl, q }));
         Assert.False(parser.Matches("Ctrl+Q", q, new HashSet<int> { q }));
+    }
+
+    [Theory]
+    [InlineData("MouseX1", NativeMethods.VK_XBUTTON1)]
+    [InlineData("Mouse4", NativeMethods.VK_XBUTTON1)]
+    [InlineData("MouseX2", NativeMethods.VK_XBUTTON2)]
+    [InlineData("Mouse5", NativeMethods.VK_XBUTTON2)]
+    public void SideMouseButtons_AreParsedAndMatched(string hotkey, int virtualKey)
+    {
+        var parser = new HotkeyParser();
+        Assert.Equal(virtualKey, parser.ToVirtualKey(hotkey));
+        Assert.True(parser.Matches(hotkey, virtualKey, new HashSet<int> { virtualKey }));
     }
 }

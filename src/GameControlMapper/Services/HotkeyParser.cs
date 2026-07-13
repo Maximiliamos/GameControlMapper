@@ -42,6 +42,8 @@ public sealed class HotkeyParser
             "MOUSELEFT" or "MOUSE1" => NativeMethods.VK_LBUTTON,
             "MOUSERIGHT" or "MOUSE2" => NativeMethods.VK_RBUTTON,
             "MOUSEMIDDLE" or "MOUSE3" => NativeMethods.VK_MBUTTON,
+            "MOUSEX1" or "MOUSE4" or "XBUTTON1" => NativeMethods.VK_XBUTTON1,
+            "MOUSEX2" or "MOUSE5" or "XBUTTON2" => NativeMethods.VK_XBUTTON2,
             _ => TryParseKey(token)
         };
     }

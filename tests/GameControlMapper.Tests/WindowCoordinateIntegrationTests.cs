@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Windows.Input;
 using GameControlMapper.Models;
 using GameControlMapper.Services;
+using GameControlMapper.Win32;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -55,6 +56,21 @@ public sealed class WindowCoordinateIntegrationTests
         await fixture.Scheduler.SendFrameOnceAsync();
 
         Assert.Equal(new PhysicalScreenPoint(-900, -450), fixture.Backend.FirstPoint(TouchState.Down));
+        await fixture.Mapping.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("MouseX1", NativeMethods.VK_XBUTTON1)]
+    [InlineData("MouseX2", NativeMethods.VK_XBUTTON2)]
+    public async Task SideMouseButton_ExecutesMappedTouch(string hotkey, int virtualKey)
+    {
+        using var fixture = new Fixture(new(100, 200, 1000, 500));
+        fixture.Start(new ProfilePoint(100, 50), hotkey);
+
+        fixture.PressMouse(virtualKey);
+        await fixture.Scheduler.SendFrameOnceAsync();
+
+        Assert.Equal(new PhysicalScreenPoint(200, 250), fixture.Backend.FirstPoint(TouchState.Down));
         await fixture.Mapping.StopAsync();
     }
 
@@ -246,9 +262,9 @@ public sealed class WindowCoordinateIntegrationTests
             Mapping.SetProfile(Profile);
         }
 
-        public void Start(ProfilePoint point)
+        public void Start(ProfilePoint point, string hotkey = "Q")
         {
-            Profile.Bindings = [new ControlBinding { Name = "Test", Hotkey = "Q", Kind = BindingKind.Tap, X = point.X, Y = point.Y, Width = 0, Height = 0 }];
+            Profile.Bindings = [new ControlBinding { Name = "Test", Hotkey = hotkey, Kind = BindingKind.Tap, X = point.X, Y = point.Y, Width = 0, Height = 0 }];
             Mapping.SetProfile(Profile);
             Mapping.Start();
         }
@@ -280,6 +296,12 @@ public sealed class WindowCoordinateIntegrationTests
         {
             var method = typeof(InputMappingEngine).GetMethod("OnKeyUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
             method.Invoke(Mapping, [null, KeyInterop.VirtualKeyFromKey(key)]);
+        }
+
+        public void PressMouse(int virtualKey)
+        {
+            var method = typeof(InputMappingEngine).GetMethod("OnMouseButtonDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            method.Invoke(Mapping, [null, virtualKey]);
         }
 
         public void Dispose()

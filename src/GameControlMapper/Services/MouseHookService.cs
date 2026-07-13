@@ -174,7 +174,7 @@ public sealed class MouseHookService : IDisposable
                     return new IntPtr(1);
                 }
             }
-            else if (TryGetMouseVirtualKey(message, out var virtualKey, out var isDown))
+            else if (TryGetMouseVirtualKey(message, data.mouseData, out var virtualKey, out var isDown))
             {
                 if (isDown)
                 {
@@ -238,16 +238,20 @@ public sealed class MouseHookService : IDisposable
         Y = unchecked((int)(uint)value)
     };
 
-    private static bool TryGetMouseVirtualKey(int message, out int virtualKey, out bool isDown)
+    internal static bool TryGetMouseVirtualKey(int message, int mouseData, out int virtualKey, out bool isDown)
     {
+        var xButton = unchecked((int)((uint)mouseData >> 16));
         virtualKey = message switch
         {
             NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_LBUTTONUP => NativeMethods.VK_LBUTTON,
             NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_RBUTTONUP => NativeMethods.VK_RBUTTON,
             NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_MBUTTONUP => NativeMethods.VK_MBUTTON,
+            NativeMethods.WM_XBUTTONDOWN or NativeMethods.WM_XBUTTONUP when xButton == NativeMethods.XBUTTON1 => NativeMethods.VK_XBUTTON1,
+            NativeMethods.WM_XBUTTONDOWN or NativeMethods.WM_XBUTTONUP when xButton == NativeMethods.XBUTTON2 => NativeMethods.VK_XBUTTON2,
             _ => 0
         };
-        isDown = message is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_MBUTTONDOWN;
+        isDown = message is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or
+            NativeMethods.WM_MBUTTONDOWN or NativeMethods.WM_XBUTTONDOWN;
         return virtualKey != 0;
     }
 

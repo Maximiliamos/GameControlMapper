@@ -41,5 +41,7 @@ public sealed class UiInputConvenienceTests
     public void Recorder_FormatsMouseButton()
     {
         Assert.Equal("MouseRight", HotkeyCaptureFormatter.FormatMouse(MouseButton.Right, ModifierKeys.None));
+        Assert.Equal("MouseX1", HotkeyCaptureFormatter.FormatMouse(MouseButton.XButton1, ModifierKeys.None));
+        Assert.Equal("MouseX2", HotkeyCaptureFormatter.FormatMouse(MouseButton.XButton2, ModifierKeys.None));
     }
 }

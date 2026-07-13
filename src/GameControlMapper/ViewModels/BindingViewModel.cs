@@ -86,6 +86,8 @@ public sealed class BindingViewModel : ObservableObject
         "MOUSELEFT" or "MOUSE1" => "ЛКМ",
         "MOUSERIGHT" or "MOUSE2" => "ПКМ",
         "MOUSEMIDDLE" or "MOUSE3" => "СКМ",
+        "MOUSEX1" or "MOUSE4" or "XBUTTON1" => "Бок. 1",
+        "MOUSEX2" or "MOUSE5" or "XBUTTON2" => "Бок. 2",
         "LEFTCTRL" or "RIGHTCTRL" or "CTRL" or "CONTROL" => "Ctrl",
         "ESCAPE" => "Esc",
         _ => Hotkey

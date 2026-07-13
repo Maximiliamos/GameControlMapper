@@ -231,7 +231,8 @@ public sealed class InputMappingEngine : IDisposable
             {
                 var token = binding.Hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
                 var vk = token is null ? 0 : _hotkeyParser.ToVirtualKey(token);
-                if (vk is NativeMethods.VK_LBUTTON or NativeMethods.VK_RBUTTON or NativeMethods.VK_MBUTTON) buttons.Add(vk); else if (vk != 0) keys.Add(vk);
+                if (vk is NativeMethods.VK_LBUTTON or NativeMethods.VK_RBUTTON or NativeMethods.VK_MBUTTON or
+                    NativeMethods.VK_XBUTTON1 or NativeMethods.VK_XBUTTON2) buttons.Add(vk); else if (vk != 0) keys.Add(vk);
             }
             if (_profile.Bindings.Any(IsWasdJoystick))
                 foreach (var key in new[] { Key.W, Key.A, Key.S, Key.D }) keys.Add(KeyInterop.VirtualKeyFromKey(key));

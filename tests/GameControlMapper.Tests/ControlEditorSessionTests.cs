@@ -178,6 +178,8 @@ public sealed class ControlEditorSessionTests
     [InlineData("MouseLeft", "ЛКМ")]
     [InlineData("MouseRight", "ПКМ")]
     [InlineData("MouseMiddle", "СКМ")]
+    [InlineData("MouseX1", "Бок. 1")]
+    [InlineData("MouseX2", "Бок. 2")]
     [InlineData("LeftCtrl", "Ctrl")]
     public void BindingDisplayHotkey_UsesReadableShortLabel(string hotkey, string expected)
     {

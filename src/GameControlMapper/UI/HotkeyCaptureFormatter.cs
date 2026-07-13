@@ -22,6 +22,8 @@ internal static class HotkeyCaptureFormatter
             MouseButton.Left => "MouseLeft",
             MouseButton.Right => "MouseRight",
             MouseButton.Middle => "MouseMiddle",
+            MouseButton.XButton1 => "MouseX1",
+            MouseButton.XButton2 => "MouseX2",
             _ => null
         };
         if (key is null) return null;
