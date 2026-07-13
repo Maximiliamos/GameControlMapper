@@ -26,6 +26,7 @@ public sealed class TargetWindowActivationMonitor : ITargetWindowActivationMonit
     private readonly ILogger<TargetWindowActivationMonitor> _logger;
     private readonly nint _hook;
     private int _disposed;
+    private int _notificationQueued;
 
     public TargetWindowActivationMonitor(ITargetWindowActivationNativeAdapter native, ILogger<TargetWindowActivationMonitor> logger)
     {
@@ -50,8 +51,13 @@ public sealed class TargetWindowActivationMonitor : ITargetWindowActivationMonit
 
     private void OnNativeForeground(nint hwnd)
     {
-        if (Volatile.Read(ref _disposed) == 0)
-            ThreadPool.QueueUserWorkItem(_ => { if (Volatile.Read(ref _disposed) == 0) ActivationChanged?.Invoke(this, EventArgs.Empty); });
+        if (Volatile.Read(ref _disposed) != 0||Interlocked.Exchange(ref _notificationQueued,1)!=0)return;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try{if(Volatile.Read(ref _disposed)==0)ActivationChanged?.Invoke(this,EventArgs.Empty);}
+            catch(Exception ex){_logger.LogError(ex,"Foreground notification callback failed");}
+            finally{Interlocked.Exchange(ref _notificationQueued,0);}
+        });
     }
 
     public void Dispose()
@@ -72,7 +78,7 @@ public sealed class WindowsTargetWindowActivationNativeAdapter : ITargetWindowAc
     public bool IsIconic(nint hwnd) => NativeMethods.IsIconic(hwnd);
     public nint InstallForegroundHook(Action<nint> callback)
     {
-        _callback = (_, _, hwnd, _, _, _, _) => callback(hwnd);
+        _callback = (_, _, hwnd, _, _, _, _) => {try{callback(hwnd);}catch{}};
         return NativeMethods.SetWinEventHook(NativeMethods.EVENT_SYSTEM_FOREGROUND, NativeMethods.EVENT_SYSTEM_FOREGROUND, 0, _callback, 0, 0, NativeMethods.WINEVENT_OUTOFCONTEXT);
     }
     public void UninstallForegroundHook(nint hook) { NativeMethods.UnhookWinEvent(hook); _callback = null; }

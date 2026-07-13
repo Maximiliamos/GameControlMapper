@@ -56,10 +56,36 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 
-    private async void OnDispatcherUnhandledException(object sender,System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e){await HandleCrashAsync("Dispatcher",e.Exception);}
-    private void OnDomainUnhandledException(object? sender,UnhandledExceptionEventArgs e){if(e.ExceptionObject is Exception ex)HandleCrashAsync("AppDomain",ex).GetAwaiter().GetResult();}
-    private async void OnUnobservedTaskException(object? sender,UnobservedTaskExceptionEventArgs e){await HandleCrashAsync("TaskScheduler",e.Exception);e.SetObserved();}
-    private async Task HandleCrashAsync(string source,Exception ex){if(Interlocked.Exchange(ref _crashDispatch,1)!=0)return;try{if(_serviceProvider is not null)await _serviceProvider.GetRequiredService<CrashHandlingService>().HandleAsync(source,ex);}catch{}finally{Volatile.Write(ref _crashDispatch,0);}}
+    private void OnDispatcherUnhandledException(object sender,System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        var result=HandleCrashBounded("Dispatcher",e.Exception,TimeSpan.FromSeconds(4));
+        e.Handled=result?.CanMarkDispatcherHandled==true;
+    }
+    private void OnDomainUnhandledException(object? sender,UnhandledExceptionEventArgs e)
+    {
+        if(e.ExceptionObject is Exception ex)_=HandleCrashBounded("AppDomain",ex,TimeSpan.FromSeconds(4));
+    }
+    private void OnUnobservedTaskException(object? sender,UnobservedTaskExceptionEventArgs e)
+    {
+        var result=HandleCrashBounded("TaskScheduler",e.Exception,TimeSpan.FromSeconds(4));
+        if(result?.Started==true)e.SetObserved();
+    }
+    private CrashRecoveryResult? HandleCrashBounded(string source,Exception ex,TimeSpan timeout)
+    {
+        if(Interlocked.Exchange(ref _crashDispatch,1)!=0)return null;
+        try
+        {
+            if(_serviceProvider is null)return null;
+            var task=_serviceProvider.GetRequiredService<CrashHandlingService>().HandleAsync(source,ex);
+            return task.WaitAsync(timeout).GetAwaiter().GetResult();
+        }
+        catch(Exception handlerException)
+        {
+            try{_serviceProvider?.GetService<FileLogSink>()?.WriteCrashHandlerFallback(source,handlerException);}catch{}
+            return null;
+        }
+        finally{Volatile.Write(ref _crashDispatch,0);}
+    }
 
     private static void ConfigureServices(IServiceCollection services)
     {
