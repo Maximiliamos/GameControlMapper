@@ -75,8 +75,11 @@ public sealed class TargetWindowFocusSafetyTests
     [Fact]
     public void RepeatedForegroundNotifications_AreCoalescedAndContained()
     {
-        using var fixture=new Fixture();var count=0;fixture.Monitor.ActivationChanged+=(_,_)=>{Interlocked.Increment(ref count);Thread.Sleep(20);};
-        for(var i=0;i<100;i++)fixture.Activation.Raise();Assert.True(SpinWait.SpinUntil(()=>count>0,TimeSpan.FromSeconds(1)));Thread.Sleep(40);Assert.InRange(count,1,2);
+        using var fixture=new Fixture();using var entered=new ManualResetEventSlim();using var release=new ManualResetEventSlim();using var completed=new ManualResetEventSlim();var count=0;
+        fixture.Monitor.ActivationChanged+=(_,_)=>{Interlocked.Increment(ref count);entered.Set();release.Wait(TimeSpan.FromSeconds(5));completed.Set();};
+        fixture.Activation.Raise();Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+        for(var i=1;i<100;i++)fixture.Activation.Raise();
+        Assert.Equal(1,Volatile.Read(ref count));release.Set();Assert.True(completed.Wait(TimeSpan.FromSeconds(5)));
     }
 
     private sealed class Fixture:IDisposable

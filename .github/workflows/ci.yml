@@ -65,6 +65,7 @@ jobs:
           Set-Content (Join-Path $negative 'manifest.json') '{malformed'
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -ArtifactsDirectory $negative -Version $version -ExpectedCommit "${{ github.sha }}"
           if ($LASTEXITCODE -eq 0) { throw 'Malformed manifest was accepted' }
+          exit 0
       - name: Smoke diagnostic export from packaged application
         shell: powershell
         run: |
