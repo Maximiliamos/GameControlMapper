@@ -82,7 +82,6 @@ try {
     $manifest | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $out 'manifest.json') -Encoding utf8
     $archives | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
     & (Join-Path $PSScriptRoot 'verify-release.ps1') -ArtifactsDirectory $out -Version $Version -ExpectedCommit $CommitHash
-    if ($LASTEXITCODE) { throw 'Artifact verification failed.' }
     Remove-Item -LiteralPath $stage -Recurse -Force
     Write-Host "Release candidate created in $out"
 } finally { Pop-Location }

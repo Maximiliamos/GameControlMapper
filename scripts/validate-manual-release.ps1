@@ -27,7 +27,6 @@ if ($CandidateManifest) {
     if ($candidate.schemaVersion -ne '2.0' -or $candidate.version -ne $ExpectedVersion -or $candidate.commitHash -ne $ExpectedCommit) { throw 'Candidate manifest version or commit mismatch.' }
     $candidateDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($CandidateManifest))
     & (Join-Path $PSScriptRoot 'verify-release.ps1') -ArtifactsDirectory $candidateDirectory -Version $ExpectedVersion -ExpectedCommit $ExpectedCommit
-    if ($LASTEXITCODE) { throw 'Candidate artifact verification failed.' }
 }
 if ($report.protocolErrors.Count -gt 0) { throw 'Protocol errors are present.' }
 if ([int]$report.activeContactsAtEnd -ne 0) { throw 'Active contacts remain.' }

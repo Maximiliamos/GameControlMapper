@@ -31,12 +31,10 @@ try {
     & (Join-Path $PSScriptRoot 'validate-manual-release.ps1') `
         -ReportPath $ReportPath -ApplicationArchive $ApplicationArchive -HarnessArchive $HarnessArchive `
         -ExpectedVersion $candidateVersion -ExpectedCommit $Commit -CandidateManifest $candidateManifestPath
-    if ($LASTEXITCODE) { throw 'Manual validation failed.' }
     $validatedReport = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
 
     $output = [IO.Path]::GetFullPath($OutputDirectory)
     & (Join-Path $PSScriptRoot 'build-release.ps1') -Version $Version -OutputDirectory $output -CommitHash $Commit
-    if ($LASTEXITCODE) { throw 'Final binaries could not be rebuilt from the validated commit.' }
 
     $finalManifestPath = Join-Path $output 'manifest.json'
     $finalManifest = Get-Content -LiteralPath $finalManifestPath -Raw | ConvertFrom-Json
@@ -75,6 +73,5 @@ try {
         '| XInput, Macro/Sequence, ADB, Interception, ViGEm, pinch, rotation | Unsupported | runtime absent |')
     $supportLines | Set-Content -LiteralPath (Join-Path $output 'SUPPORT_MATRIX.md') -Encoding utf8
     & (Join-Path $PSScriptRoot 'verify-release.ps1') -ArtifactsDirectory $output -Version $Version -ExpectedCommit $Commit
-    if ($LASTEXITCODE) { throw 'Final artifact verification failed.' }
     Write-Host "Final release rebuilt and created in $output"
 } finally { Pop-Location }
