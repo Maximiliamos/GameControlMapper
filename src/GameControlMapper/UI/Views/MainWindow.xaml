@@ -48,6 +48,9 @@
                     <Button Content="Импорт" Command="{Binding ImportProfileCommand}" />
                     <Button Content="Экспорт" Command="{Binding ExportProfileCommand}" />
                     <Button Content="Диагностика" Command="{Binding ExportDiagnosticsCommand}" />
+                    <Button Content="Статистика XVM"
+                            Command="{Binding OpenBlitzXvmCommand}"
+                            ToolTip="Запустить Blitz XVM или показать его уже открытое окно. Программа статистики работает отдельно от сенсорного ввода." />
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -297,6 +300,63 @@
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="#D7E3F4"
                                        Text="1. Запустите игру и выберите её окно.&#10;2. Нажмите «Редактировать поверх игры».&#10;3. Щёлкните правой кнопкой по пустой области.&#10;4. Выберите действие, перетащите его и задайте клавишу.&#10;5. Сохраните схему и нажмите F8.&#10;&#10;Ctrl включает обзор камерой; повторный Ctrl возвращает мышь.&#10;F9 всегда останавливает управление." />
+                        </Border>
+                    </Expander>
+
+                    <Expander Header="Статистика Blitz XVM" IsExpanded="True" Margin="0,0,0,12">
+                        <Border Background="#202938" CornerRadius="6" Padding="10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding OlenemerStatus}" Foreground="#93C5FD" />
+                                <TextBlock Text="{Binding OlenemerAccountSummary}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                                <TextBlock Text="{Binding OlenemerLastBattleSummary}" TextWrapping="Wrap" Margin="0,5,0,8" />
+                                <UniformGrid Columns="2">
+                                    <Button Content="Обновить" Command="{Binding RefreshOlenemerStatsCommand}" />
+                                    <Button Content="Открыть XVM" Command="{Binding OpenBlitzXvmCommand}" />
+                                </UniformGrid>
+                                <TextBlock Text="Читаются только агрегаты account_stats.json и итог battle_result.json. DLL и список игроков не загружаются."
+                                           Foreground="{StaticResource MutedTextBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Expander>
+
+                    <Expander Header="Камера и чувствительность" IsExpanded="True" Margin="0,0,0,12">
+                        <Border Background="#202938" CornerRadius="6" Padding="10">
+                            <StackPanel>
+                                <TextBlock Text="Ctrl включает обзор, повторный Ctrl возвращает обычную мышь. Изменения применяются к текущему профилю и сохраняются кнопкой «Сохранить»."
+                                           TextWrapping="Wrap"
+                                           Foreground="#D7E3F4"
+                                           Margin="0,0,0,8" />
+                                <TextBlock Text="Горизонтальная чувствительность" />
+                                <DockPanel>
+                                    <TextBox DockPanel.Dock="Right" Width="58"
+                                             Text="{Binding CurrentProfile.Camera.SensitivityX, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Slider Minimum="0.1" Maximum="3" TickFrequency="0.05"
+                                            Value="{Binding CurrentProfile.Camera.SensitivityX}"
+                                            ToolTip="1,0 — движение камеры один к одному с движением мыши" />
+                                </DockPanel>
+                                <TextBlock Text="Вертикальная чувствительность" Margin="0,6,0,0" />
+                                <DockPanel>
+                                    <TextBox DockPanel.Dock="Right" Width="58"
+                                             Text="{Binding CurrentProfile.Camera.SensitivityY, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Slider Minimum="0.1" Maximum="3" TickFrequency="0.05"
+                                            Value="{Binding CurrentProfile.Camera.SensitivityY}" />
+                                </DockPanel>
+                                <TextBlock Text="Сглаживание" Margin="0,6,0,0" />
+                                <DockPanel>
+                                    <TextBox DockPanel.Dock="Right" Width="58"
+                                             Text="{Binding CurrentProfile.Camera.Smooth, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Slider Minimum="0" Maximum="0.2" TickFrequency="0.01"
+                                            Value="{Binding CurrentProfile.Camera.Smooth}"
+                                            ToolTip="0 — прямой и наиболее отзывчивый обзор; увеличивайте понемногу, если движение кажется резким" />
+                                </DockPanel>
+                                <UniformGrid Columns="2" Margin="0,8,0,0">
+                                    <CheckBox Content="Инвертировать X" IsChecked="{Binding CurrentProfile.Camera.InvertX}" />
+                                    <CheckBox Content="Инвертировать Y" IsChecked="{Binding CurrentProfile.Camera.InvertY}" />
+                                </UniformGrid>
+                            </StackPanel>
                         </Border>
                     </Expander>
 

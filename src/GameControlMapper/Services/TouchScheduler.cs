@@ -14,6 +14,7 @@ public class TouchScheduler : IDisposable
     private readonly FrameContext _context;
     private readonly ITargetWindowSessionValidator? _sessionValidator;
     private readonly ITouchContactAllocator? _allocator;
+    private readonly MouseHookService? _mouseHook;
     private CancellationTokenSource? _cts;
     private int _frameId = 0;
     
@@ -46,7 +47,8 @@ public class TouchScheduler : IDisposable
         ContactManager manager,
         ITouchBackend backend,
         FrameContext context,
-        ITargetWindowSessionValidator? sessionValidator = null, ITouchContactAllocator? allocator = null)
+        ITargetWindowSessionValidator? sessionValidator = null, ITouchContactAllocator? allocator = null,
+        MouseHookService? mouseHook = null)
     {
         _logger = logger;
         _manager = manager;
@@ -54,6 +56,7 @@ public class TouchScheduler : IDisposable
         _context = context;
         _sessionValidator = sessionValidator;
         _allocator = allocator;
+        _mouseHook = mouseHook;
     }
 
     public void Start()
@@ -106,6 +109,7 @@ public class TouchScheduler : IDisposable
             var contacts = _manager.GetContactsForFrame();
             using var frame = CreateFrame(contacts);
             var sent = _backend.SendFrame(frame);
+            _mouseHook?.RestoreCursorAfterTouchFrame();
             if (sent)
             {
                 _manager.CompleteReleasedContacts(contactIds);
@@ -186,13 +190,15 @@ public class TouchScheduler : IDisposable
 
         LogFrame(frame);
 
-        if (!_backend.SendFrame(frame))
+        var sent = _backend.SendFrame(frame);
+        _mouseHook?.RestoreCursorAfterTouchFrame();
+        if (!sent)
         {
             var failedUps=contacts.Where(c=>c.State==TouchState.Up).Select(c=>c.ContactId).ToArray();
             if(failedUps.Length>0){_allocator?.QuarantineFailedUp(failedUps);_manager.DiscardContacts(failedUps);_logger.LogError("Touch Up failed; contact IDs quarantined: {Ids}",string.Join(", ",failedUps));}
             return;
         }
-        _manager.AdvanceSentContacts(contacts.Where(c => c.State == TouchState.Down).Select(c => c.ContactId));
+        _manager.AdvanceSentContacts(contacts.Where(c => c.State is TouchState.Down or TouchState.Update));
         _manager.CompleteReleasedContacts(contacts.Where(c => c.State == TouchState.Up).Select(c => c.ContactId));
         _allocator?.CompleteSuccessfulUp(contacts.Where(c => c.State == TouchState.Up).Select(c => c.ContactId));
         FrameSent?.Invoke(this, EventArgs.Empty);

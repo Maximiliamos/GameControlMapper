@@ -132,6 +132,7 @@ public sealed class InputMappingEngine : IDisposable
             _contactAllocator.Reset(targetStart.Session!.Generation);
             PublishInputPermission(targetStart.Session!.Generation);
             _mouseHook.SuppressTouchPromotedMouseEvents = true;
+            _mouseHook.SetCursorIsolation(true);
             _touchEngine.StartAcceptingContacts();
             _touchScheduler.Resume();
             if (_gestureCancellation.IsCancellationRequested)
@@ -152,7 +153,6 @@ public sealed class InputMappingEngine : IDisposable
     public Task<TouchShutdownResult> StopAsync(string reason="manual stop")
     {
         Volatile.Write(ref _inputPermission, InputPermissionSnapshot.Denied);
-        _mouseHook.SuppressTouchPromotedMouseEvents = false;
         _mouseHook.CaptureMovement = false;
         _mouseHook.ResetMovementTracking();
         lock (_gate)
@@ -198,6 +198,8 @@ public sealed class InputMappingEngine : IDisposable
             _logger.LogError(ex, "Touch shutdown failed");
             result = new TouchShutdownResult(false, false, [], []);
         }
+        _mouseHook.SuppressTouchPromotedMouseEvents = false;
+        _mouseHook.SetCursorIsolation(false);
         ActiveChanged?.Invoke(this, false);
         _sessionDiagnostics?.Stop(_stopReason,result.Succeeded,_contactAllocator.ActiveLeases.Count);
         _logger.LogInformation("Mapping session {SessionId} stopped. Reason={Reason}; release succeeded={Succeeded}",_mappingSessionId,_stopReason,result.Succeeded);

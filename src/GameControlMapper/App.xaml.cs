@@ -81,7 +81,12 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IInputSimulator, SendInputSimulator>();
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
-        services.AddSingleton<MouseHookService>();
+        services.AddSingleton(provider =>
+        {
+            var hook = new MouseHookService(provider.GetRequiredService<ILogger<MouseHookService>>());
+            provider.GetRequiredService<IRelativeMouseInputSource>().Moved += hook.OnRawPhysicalMouseMoved;
+            return hook;
+        });
         services.AddSingleton<IRelativeMouseInputSource,RawMouseInputSource>();
         services.AddSingleton<IMouseCursorController, WindowsMouseCursorController>();
         services.AddSingleton(provider =>
@@ -99,6 +104,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<InputMappingEngine>();
         services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();
+        services.AddSingleton<OlenemerStatsReader>();
         services.AddSingleton<IGameWindowNativeAdapter, WindowsGameWindowNativeAdapter>();
         services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();
         services.AddSingleton<ITargetWindowActivationNativeAdapter, WindowsTargetWindowActivationNativeAdapter>();

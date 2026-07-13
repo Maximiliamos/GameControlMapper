@@ -14,6 +14,7 @@ public class ContactManager
     private readonly ILogger<ContactManager> _logger;
     private readonly TouchContact[] _contactPool;
     private readonly Dictionary<int, TouchContact> _activeContacts = new();
+    private readonly Dictionary<int, (double X, double Y)> _lastSentPositions = new();
     private readonly Queue<int> _freeDynamicIds = new();
     private readonly HashSet<int> _successfullyStartedContacts = [];
     private readonly object _gate = new();
@@ -106,6 +107,15 @@ public class ContactManager
         lock (_gate)
         {
             if (!_activeContacts.TryGetValue(id, out var contact)) return false;
+            // InjectTouchInput rejects an Up whose location differs from the last
+            // successfully injected frame. A move and release can arrive between
+            // scheduler ticks, so discard only that unsent tail before lifting.
+            if (_successfullyStartedContacts.Contains(id) &&
+                _lastSentPositions.TryGetValue(id, out var lastSent))
+            {
+                contact.X = lastSent.X;
+                contact.Y = lastSent.Y;
+            }
             contact.State = TouchState.Up;
             contact.Timestamp = DateTime.UtcNow;
             return true;
@@ -166,6 +176,7 @@ public class ContactManager
         // Сбрасываем состояние
         contact.Reset();
         _activeContacts.Remove(contactId);
+        _lastSentPositions.Remove(contactId);
 
         // Если это динамический ID, вернём в очередь свободных
         if (contactId >= MinDynamicId && contactId < MaxContacts)
@@ -214,25 +225,41 @@ public class ContactManager
                     contact.Reset();
                     _activeContacts.Remove(id);
                     _successfullyStartedContacts.Remove(id);
+                    _lastSentPositions.Remove(id);
                 }
             }
         }
         ContactsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void AdvanceSentContacts(IEnumerable<int> contactIds)
+    public void AdvanceSentContacts(IEnumerable<TouchContact> contacts)
     {
         lock (_gate)
         {
-            foreach (var id in contactIds)
+            foreach (var sent in contacts)
             {
+                var id = sent.ContactId;
                 if (_activeContacts.TryGetValue(id, out var contact))
                 {
                     _successfullyStartedContacts.Add(id);
+                    _lastSentPositions[id] = (sent.X, sent.Y);
                     if (contact.State == TouchState.Down) contact.State = TouchState.Update;
                 }
             }
         }
+    }
+
+    public void AdvanceSentContacts(IEnumerable<int> contactIds)
+    {
+        List<TouchContact> sent;
+        lock (_gate)
+        {
+            sent = contactIds
+                .Where(id => _activeContacts.ContainsKey(id))
+                .Select(id => Clone(_activeContacts[id]))
+                .ToList();
+        }
+        AdvanceSentContacts(sent);
     }
 
     /// <summary>
@@ -259,9 +286,15 @@ public class ContactManager
                 {
                     contact.Reset();
                     _activeContacts.Remove(id);
+                    _lastSentPositions.Remove(id);
                     continue;
                 }
 
+                if (_lastSentPositions.TryGetValue(id, out var lastSent))
+                {
+                    contact.X = lastSent.X;
+                    contact.Y = lastSent.Y;
+                }
                 contact.State = TouchState.Up;
             }
 
@@ -277,6 +310,7 @@ public class ContactManager
             {
                 if (_activeContacts.Remove(id, out var contact)) contact.Reset();
                 _successfullyStartedContacts.Remove(id);
+                _lastSentPositions.Remove(id);
             }
         }
         ContactsChanged?.Invoke(this, EventArgs.Empty);

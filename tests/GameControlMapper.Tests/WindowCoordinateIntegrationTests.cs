@@ -52,7 +52,7 @@ public sealed class WindowCoordinateIntegrationTests
         fixture.Start(new ProfilePoint(100, 50));
 
         fixture.Press(Key.Q);
-        Assert.True(fixture.Backend.WaitForState(TouchState.Down));
+        await fixture.Scheduler.SendFrameOnceAsync();
 
         Assert.Equal(new PhysicalScreenPoint(-900, -450), fixture.Backend.FirstPoint(TouchState.Down));
         await fixture.Mapping.StopAsync();

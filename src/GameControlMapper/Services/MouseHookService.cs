@@ -16,6 +16,10 @@ public sealed class MouseHookService : IDisposable
     private int _suppressedMoveCount;
     private volatile bool _captureMovement;
     private volatile bool _suppressTouchPromotedMouseEvents;
+    private volatile bool _isolateCursorFromTouch;
+    private long _protectedCursorPosition;
+    private int _hasProtectedCursorPosition;
+    private int _cursorRestoreInProgress;
     private int _queuedDx;
     private int _queuedDy;
     private int _moveDispatchScheduled;
@@ -47,6 +51,19 @@ public sealed class MouseHookService : IDisposable
         set => _captureMovement = value;
     }
     public bool SuppressTouchPromotedMouseEvents{get=>_suppressTouchPromotedMouseEvents;set=>_suppressTouchPromotedMouseEvents=value;}
+
+    public void SetCursorIsolation(bool enabled)
+    {
+        _isolateCursorFromTouch = enabled;
+        if (enabled && NativeMethods.GetCursorPos(out var point))
+        {
+            RememberPhysicalCursor(point);
+        }
+        else if (!enabled)
+        {
+            Volatile.Write(ref _hasProtectedCursorPosition, 0);
+        }
+    }
 
     public void ResetMovementTracking()
     {
@@ -114,6 +131,7 @@ public sealed class MouseHookService : IDisposable
             var data = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
             if (_suppressTouchPromotedMouseEvents && IsTouchPromotedMouseEvent(data.dwExtraInfo))
             {
+                RestoreCursorAfterTouchFrame();
                 return new IntPtr(1);
             }
             if ((data.flags & NativeMethods.LLMHF_INJECTED) == NativeMethods.LLMHF_INJECTED)
@@ -179,6 +197,46 @@ public sealed class MouseHookService : IDisposable
 
     internal static bool IsTouchPromotedMouseEvent(IntPtr extraInfo) =>
         (unchecked((ulong)extraInfo.ToInt64()) & NativeMethods.MI_WP_SIGNATURE_MASK) == NativeMethods.MI_WP_SIGNATURE;
+
+    public void OnRawPhysicalMouseMoved(int dx, int dy)
+    {
+        if (!_isolateCursorFromTouch || _captureMovement || (dx == 0 && dy == 0)) return;
+        if (NativeMethods.GetCursorPos(out var point)) RememberPhysicalCursor(point);
+    }
+
+    private void RememberPhysicalCursor(NativeMethods.POINT point)
+    {
+        Interlocked.Exchange(ref _protectedCursorPosition, Pack(point));
+        Volatile.Write(ref _hasProtectedCursorPosition, 1);
+    }
+
+    public void RestoreCursorAfterTouchFrame()
+    {
+        if (!_isolateCursorFromTouch || Volatile.Read(ref _hasProtectedCursorPosition) == 0 ||
+            Interlocked.Exchange(ref _cursorRestoreInProgress, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var point = Unpack(Interlocked.Read(ref _protectedCursorPosition));
+            NativeMethods.SetCursorPos(point.X, point.Y);
+        }
+        finally
+        {
+            Volatile.Write(ref _cursorRestoreInProgress, 0);
+        }
+    }
+
+    internal static long Pack(NativeMethods.POINT point) =>
+        ((long)point.X << 32) | (uint)point.Y;
+
+    internal static NativeMethods.POINT Unpack(long value) => new()
+    {
+        X = (int)(value >> 32),
+        Y = unchecked((int)(uint)value)
+    };
 
     private static bool TryGetMouseVirtualKey(int message, out int virtualKey, out bool isDown)
     {

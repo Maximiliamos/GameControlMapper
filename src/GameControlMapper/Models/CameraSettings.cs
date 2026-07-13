@@ -15,7 +15,7 @@ public sealed class CameraSettings
     public bool InvertX { get; set; }
     public bool InvertY { get; set; }
     public double Acceleration { get; set; }
-    public double DeadZone { get; set; } = 0.2;
-    public double Smooth { get; set; } = 0.35;
-    public double MaxSpeed { get; set; } = 48;
+    public double DeadZone { get; set; }
+    public double Smooth { get; set; }
+    public double MaxSpeed { get; set; } = 64;
 }
