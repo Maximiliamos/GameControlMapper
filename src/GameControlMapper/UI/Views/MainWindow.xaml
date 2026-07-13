@@ -1,15 +1,380 @@
-<Window x:Class="GameControlMapper.UI.Views.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:viewModels="clr-namespace:GameControlMapper.ViewModels" Title="Game Control Mapper — настройка управления" Width="1480" Height="920" MinWidth="1180" MinHeight="740" Background="{StaticResource ShellBackgroundBrush}" Foreground="{StaticResource TextBrush}" KeyDown="Window_KeyDown">
- <Grid><Grid.RowDefinitions><RowDefinition Height="76"/><RowDefinition Height="*"/><RowDefinition Height="120"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="350"/></Grid.ColumnDefinitions>
-  <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#DD0D1118" BorderBrush="#273244" BorderThickness="0,0,0,1"><DockPanel Margin="12,0">
-   <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center"><TextBlock Text="Game Control Mapper" FontSize="19" FontWeight="Bold" Margin="0,0,14,0"/><Button Content="＋ Новый" Command="{Binding NewProfileCommand}" ToolTip="Создать новый профиль на основе схемы Tanks Blitz"/><Button Content="💾 Сохранить" Command="{Binding SaveProfileCommand}" ToolTip="Сохранить текущие зоны и создать резервную копию предыдущей версии"/><Button Content="Импорт" Command="{Binding ImportProfileCommand}"/><Button Content="Экспорт" Command="{Binding ExportProfileCommand}"/><Button Content="Диагностика" Command="{Binding ExportDiagnosticsCommand}"/></StackPanel>
-   <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center"><TextBlock Text="{Binding BetaVersion}" Foreground="#FBBF24" FontWeight="Bold" Margin="0,0,12,0"/><TextBlock Text="{Binding IsMappingActive, Converter={StaticResource BooleanLabelConverter}}" Foreground="{StaticResource AccentBrush}" Margin="0,0,10,0"/><Button Content="▶ F8 Запустить" Command="{Binding ActivateCommand}" ToolTip="Начать управление выбранным окном"/><Button Content="■ F9 Остановить" Command="{Binding DeactivateCommand}" ToolTip="Немедленно завершить все касания"/></StackPanel>
-  </DockPanel></Border>
-  <Border Grid.Row="1" Grid.Column="0" Background="#D9171B24" BorderBrush="#273244" BorderThickness="0,0,1,0" Padding="12"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBlock Text="Целевое окно" FontSize="16" FontWeight="Bold"/><StackPanel Grid.Row="1"><TextBlock Text="{Binding TargetWindowStatus}" TextWrapping="Wrap" Foreground="#FBBF24" Margin="0,4"/><ComboBox ItemsSource="{Binding TargetWindows}" SelectedItem="{Binding SelectedTargetWindow,Mode=TwoWay}" DisplayMemberPath="DisplayName" ToolTip="Выберите окно MuMu Player с запущенной игрой"/><Button Content="↻ Обновить список окон" Command="{Binding RefreshWindowsCommand}" ToolTip="Нажмите после запуска игры или эмулятора"/></StackPanel><StackPanel Grid.Row="2" Margin="0,14,0,0"><TextBlock Text="Профили" FontSize="16" FontWeight="Bold"/><TextBlock Text="Выберите профиль для игры" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,8"/><ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfileName,Mode=TwoWay}"/></StackPanel><Button Grid.Row="3" Content="Удалить профиль" Command="{Binding DeleteProfileCommand}" ToolTip="Удаление нельзя отменить"/></Grid></Border>
-  <Grid Grid.Row="1" Grid.Column="1" Background="#660B0F15"><Grid.RowDefinitions><RowDefinition Height="112"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <Border Background="#CC111722" BorderBrush="#273244" BorderThickness="0,0,0,1" Padding="10"><Grid><Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions><StackPanel Orientation="Horizontal"><ComboBox Width="210" ItemsSource="{Binding BindingKinds}" SelectedItem="{Binding NewBindingKind}" ToolTip="Выберите действие для новой зоны"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource BindingKindLabelConverter}}" Foreground="#111827"/></DataTemplate></ComboBox.ItemTemplate></ComboBox><Button Content="＋ Добавить зону" Command="{Binding AddBindingCommand}"/><Button Content="Копировать" Command="{Binding CopyBindingCommand}"/><Button Content="Вставить" Command="{Binding PasteBindingCommand}"/><Button Content="Дублировать" Command="{Binding DuplicateBindingCommand}"/><Button Content="Удалить" Command="{Binding DeleteBindingCommand}"/></StackPanel><StackPanel Grid.Row="1" Orientation="Horizontal"><Button Content="Выбрать область на экране" Command="{Binding SelectAreaCommand}" ToolTip="Обведите сенсорную кнопку в целевом окне"/><Button Content="Указать центр кнопки" Command="{Binding PickCenterCommand}"/><TextBlock Text="Перетаскивайте цветные зоны мышью; белый квадрат меняет размер." Foreground="{StaticResource MutedTextBrush}" Margin="12,0,0,0"/></StackPanel></Grid></Border>
-   <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"><Canvas Width="1920" Height="1080" Background="#151C28" MouseDown="EditorCanvas_MouseDown"><ItemsControl ItemsSource="{Binding Bindings}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Canvas.Left" Value="{Binding X}"/><Setter Property="Canvas.Top" Value="{Binding Y}"/></Style></ItemsControl.ItemContainerStyle><ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type viewModels:BindingViewModel}"><Grid Width="{Binding Width}" Height="{Binding Height}" ToolTip="{Binding Comment}"><Thumb DragDelta="MoveThumb_DragDelta" PreviewMouseLeftButtonDown="BindingThumb_PreviewMouseLeftButtonDown"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="{Binding Color,Converter={StaticResource HexBrushConverter}}" BorderBrush="White" BorderThickness="2" CornerRadius="7" Opacity="{Binding Opacity}"><StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="4"><TextBlock Text="{Binding Hotkey}" FontWeight="Bold" FontSize="17" HorizontalAlignment="Center"/><TextBlock Text="{Binding Name}" FontSize="11" TextAlignment="Center" TextWrapping="Wrap"/></StackPanel></Border></ControlTemplate></Thumb.Template></Thumb><Thumb Width="16" Height="16" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="SizeNWSE" DragDelta="ResizeThumb_DragDelta" PreviewMouseLeftButtonDown="BindingThumb_PreviewMouseLeftButtonDown"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="White" BorderBrush="#0F172A" BorderThickness="1"/></ControlTemplate></Thumb.Template></Thumb></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Canvas></ScrollViewer>
-  </Grid>
-  <Border Grid.Row="1" Grid.Column="2" Background="#D9171B24" BorderBrush="#273244" BorderThickness="1,0,0,0" Padding="14"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock Text="Настройка выбранной зоны" FontSize="16" FontWeight="Bold"/><Expander Header="Как настроить управление" IsExpanded="True" Margin="0,8,0,12"><Border Background="#202938" CornerRadius="6" Padding="10"><TextBlock TextWrapping="Wrap" Foreground="#D7E3F4" Text="1. Запустите игру или эмулятор.&#10;2. Выберите его окно и задайте область кнопки.&#10;3. Укажите клавишу: Q, E, 1, MouseLeft и т. п.&#10;4. Выберите тип действия.&#10;5. Сохраните профиль и нажмите F8.&#10;&#10;F9 всегда останавливает управление. Боковые кнопки мыши из схемы MuMu пока не поддерживаются."/></Border></Expander><TextBlock Text="Название профиля" Foreground="{StaticResource MutedTextBrush}"/><TextBox Text="{Binding ProfileName,UpdateSourceTrigger=PropertyChanged}" ToolTip="Понятное название игры или схемы"/><TextBlock Text="Название зоны" Foreground="{StaticResource MutedTextBrush}"/><TextBox Text="{Binding SelectedBinding.Name,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="Действие" Foreground="{StaticResource MutedTextBrush}"/><ComboBox ItemsSource="{Binding BindingKinds}" SelectedItem="{Binding SelectedBinding.Kind}"/><TextBlock Text="Клавиша или кнопка мыши" Foreground="{StaticResource MutedTextBrush}"/><TextBox Text="{Binding SelectedBinding.Hotkey,UpdateSourceTrigger=PropertyChanged}" ToolTip="Примеры: Q, Space, LeftCtrl, MouseLeft, MouseRight, WASD"/><UniformGrid Columns="2"><StackPanel Margin="0,0,6,0"><TextBlock Text="X"/><TextBox Text="{Binding SelectedBinding.X,UpdateSourceTrigger=PropertyChanged}"/></StackPanel><StackPanel Margin="6,0,0,0"><TextBlock Text="Y"/><TextBox Text="{Binding SelectedBinding.Y,UpdateSourceTrigger=PropertyChanged}"/></StackPanel><StackPanel Margin="0,0,6,0"><TextBlock Text="Ширина"/><TextBox Text="{Binding SelectedBinding.Width,UpdateSourceTrigger=PropertyChanged}"/></StackPanel><StackPanel Margin="6,0,0,0"><TextBlock Text="Высота"/><TextBox Text="{Binding SelectedBinding.Height,UpdateSourceTrigger=PropertyChanged}"/></StackPanel></UniformGrid><TextBlock Text="Цвет зоны"/><TextBox Text="{Binding SelectedBinding.Color,UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="Видимость зоны"/><Slider Minimum="0.05" Maximum="1" Value="{Binding SelectedBinding.Opacity}"/><TextBlock Text="Удержание, мс"/><TextBox Text="{Binding SelectedBinding.HoldMilliseconds,UpdateSourceTrigger=PropertyChanged}"/><CheckBox Content="Зона активна" IsChecked="{Binding SelectedBinding.IsActive}"/><CheckBox Content="Обычный ввод Windows (не касание)" IsChecked="{Binding SelectedBinding.UseNativeInput}" ToolTip="Для основной схемы Tanks Blitz оставьте выключенным"/><TextBlock Text="Комментарий / подсказка"/><TextBox MinHeight="64" TextWrapping="Wrap" AcceptsReturn="True" Text="{Binding SelectedBinding.Comment,UpdateSourceTrigger=PropertyChanged}"/></StackPanel></ScrollViewer></Border>
-  <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#DD0D1118" BorderBrush="#273244" BorderThickness="0,1,0,0" Padding="12,8"><DockPanel><DockPanel DockPanel.Dock="Top"><TextBlock Text="Журнал работы" FontWeight="Bold"/><TextBlock Text="  Если управление не запускается, сначала проверьте выбранное целевое окно." Foreground="{StaticResource MutedTextBrush}"/><Button DockPanel.Dock="Right" Content="Копировать журнал" Command="{Binding CopyLogsCommand}"/></DockPanel><ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12"/></DockPanel></Border>
- </Grid>
+<Window x:Class="GameControlMapper.UI.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:viewModels="clr-namespace:GameControlMapper.ViewModels"
+        Title="Game Control Mapper — настройка управления"
+        Width="1480"
+        Height="920"
+        MinWidth="1180"
+        MinHeight="740"
+        Background="{StaticResource ShellBackgroundBrush}"
+        Foreground="{StaticResource TextBrush}"
+        KeyDown="Window_KeyDown">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="74" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="112" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="350" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Row="0"
+                Grid.ColumnSpan="3"
+                Background="#DD0D1118"
+                BorderBrush="#273244"
+                BorderThickness="0,0,0,1">
+            <DockPanel Margin="12,0" LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Margin="0,0,14,0" VerticalAlignment="Center">
+                        <TextBlock Text="Game Control Mapper" FontSize="19" FontWeight="Bold" />
+                        <TextBlock Text="Схемы управления для сенсорных игр"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="11" />
+                    </StackPanel>
+                    <Button Content="＋ Новый"
+                            Command="{Binding NewProfileCommand}"
+                            ToolTip="Создать новый профиль на основе схемы Tanks Blitz" />
+                    <Button Content="Сохранить"
+                            Command="{Binding SaveProfileCommand}"
+                            ToolTip="Сохранить текущую схему и резервную копию предыдущей версии" />
+                    <Button Content="Импорт" Command="{Binding ImportProfileCommand}" />
+                    <Button Content="Экспорт" Command="{Binding ExportProfileCommand}" />
+                    <Button Content="Диагностика" Command="{Binding ExportDiagnosticsCommand}" />
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Margin="0,0,9,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding BetaVersion}"
+                                   Foreground="#FBBF24"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Right" />
+                        <TextBlock Text="{Binding IsMappingActive, Converter={StaticResource BooleanLabelConverter}}"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Right"
+                                   FontSize="11" />
+                    </StackPanel>
+                    <Button Content="▶ F8 Запустить"
+                            Command="{Binding ActivateCommand}"
+                            Background="#0E7490"
+                            BorderBrush="#22D3EE"
+                            ToolTip="Начать управление выбранным окном" />
+                    <Button Content="■ F9 Остановить"
+                            Command="{Binding DeactivateCommand}"
+                            ToolTip="Немедленно завершить все активные касания" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1"
+                Grid.Column="0"
+                Background="#D9171B24"
+                BorderBrush="#273244"
+                BorderThickness="0,0,1,0"
+                Padding="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="1. Целевое окно игры" FontSize="16" FontWeight="Bold" />
+                <StackPanel Grid.Row="1">
+                    <TextBlock Text="{Binding TargetWindowStatus}"
+                               TextWrapping="Wrap"
+                               Foreground="#FBBF24"
+                               Margin="0,5" />
+                    <ComboBox ItemsSource="{Binding TargetWindows}"
+                              SelectedItem="{Binding SelectedTargetWindow, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName"
+                              ToolTip="Выберите окно Android Device или окно игры" />
+                    <Button Content="↻ Обновить список окон"
+                            Command="{Binding RefreshWindowsCommand}"
+                            ToolTip="Нажмите после запуска игры или эмулятора" />
+                </StackPanel>
+
+                <Border Grid.Row="2"
+                        Margin="0,10,0,12"
+                        Padding="9"
+                        Background="#202C3D"
+                        BorderBrush="#36506D"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                    <StackPanel>
+                        <TextBlock Text="2. Расставьте элементы"
+                                   FontSize="15"
+                                   FontWeight="Bold" />
+                        <TextBlock Text="Игра останется видна, а схема откроется полупрозрачным слоем поверх неё."
+                                   Margin="0,4,0,8"
+                                   Foreground="#B5C5D9"
+                                   TextWrapping="Wrap"
+                                   FontSize="12" />
+                        <Button Content="✦ Редактировать поверх игры"
+                                Command="{Binding OpenControlEditorCommand}"
+                                MinHeight="48"
+                                FontSize="14"
+                                Background="#087EA4"
+                                BorderBrush="#24D5FF"
+                                ToolTip="Открыть удобный редактор. Также доступно по F11." />
+                        <TextBlock Text="F11 — открыть редактор"
+                                   HorizontalAlignment="Center"
+                                   Foreground="#8296AF"
+                                   FontSize="11" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="3">
+                    <TextBlock Text="Профили" FontSize="16" FontWeight="Bold" />
+                    <TextBlock Text="Выберите схему для игры"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               Margin="0,2,0,8" />
+                    <ListBox ItemsSource="{Binding Profiles}"
+                             SelectedItem="{Binding SelectedProfileName, Mode=TwoWay}" />
+                </StackPanel>
+
+                <Button Grid.Row="4"
+                        Content="Удалить профиль"
+                        Command="{Binding DeleteProfileCommand}"
+                        ToolTip="Удаление нельзя отменить" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Grid.Column="1" Background="#660B0F15">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="122" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Background="#CC111722"
+                    BorderBrush="#273244"
+                    BorderThickness="0,0,0,1"
+                    Padding="10">
+                <StackPanel>
+                    <WrapPanel>
+                        <ComboBox Width="205"
+                                  ItemsSource="{Binding BindingKinds}"
+                                  SelectedItem="{Binding NewBindingKind}"
+                                  ToolTip="Тип нового элемента">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource BindingKindLabelConverter}}"
+                                               Foreground="#111827" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Content="＋ Добавить"
+                                Command="{Binding AddBindingCommand}"
+                                ToolTip="Добавить элемент в рабочее поле" />
+                        <Button Content="Копировать" Command="{Binding CopyBindingCommand}" />
+                        <Button Content="Вставить" Command="{Binding PasteBindingCommand}" />
+                        <Button Content="Дублировать" Command="{Binding DuplicateBindingCommand}" />
+                        <Button Content="Удалить" Command="{Binding DeleteBindingCommand}" />
+                    </WrapPanel>
+                    <WrapPanel>
+                        <Button Content="Выбрать область на экране"
+                                Command="{Binding SelectAreaCommand}"
+                                ToolTip="Обведите сенсорную кнопку в целевом окне" />
+                        <Button Content="Указать центр кнопки"
+                                Command="{Binding PickCenterCommand}" />
+                        <TextBlock Text="Рекомендуется редактор поверх игры: правый клик добавляет элемент точно в нужном месте."
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="10,0,0,0" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="1" Background="#151C28" ClipToBounds="True">
+                <Viewbox Stretch="Uniform" StretchDirection="Both" Margin="10">
+                    <Canvas Width="{Binding CurrentProfile.ResolutionWidth}"
+                            Height="{Binding CurrentProfile.ResolutionHeight}"
+                            Background="#151C28"
+                            MouseDown="EditorCanvas_MouseDown">
+                        <ItemsControl Width="{Binding CurrentProfile.ResolutionWidth}"
+                                      Height="{Binding CurrentProfile.ResolutionHeight}"
+                                      ItemsSource="{Binding Bindings}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                    <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type viewModels:BindingViewModel}">
+                                    <Grid Width="{Binding Width}" Height="{Binding Height}" ToolTip="{Binding Comment}">
+                                        <Thumb DragDelta="MoveThumb_DragDelta"
+                                               PreviewMouseLeftButtonDown="BindingThumb_PreviewMouseLeftButtonDown">
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border Background="{Binding Color, Converter={StaticResource HexBrushConverter}}"
+                                                            BorderBrush="White"
+                                                            BorderThickness="2"
+                                                            CornerRadius="9"
+                                                            Opacity="{Binding Opacity}">
+                                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="4">
+                                                            <TextBlock Text="{Binding DisplayHotkey}"
+                                                                       FontWeight="Bold"
+                                                                       FontSize="17"
+                                                                       HorizontalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Name}"
+                                                                       FontSize="11"
+                                                                       TextAlignment="Center"
+                                                                       TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                        <Border BorderBrush="#24D5FF"
+                                                BorderThickness="4"
+                                                CornerRadius="9"
+                                                Margin="-4"
+                                                IsHitTestVisible="False"
+                                                Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                        <Thumb Width="20"
+                                               Height="20"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Bottom"
+                                               Cursor="SizeNWSE"
+                                               DragDelta="ResizeThumb_DragDelta"
+                                               PreviewMouseLeftButtonDown="BindingThumb_PreviewMouseLeftButtonDown"
+                                               Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}">
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType="Thumb">
+                                                    <Border Background="#24D5FF"
+                                                            BorderBrush="White"
+                                                            BorderThickness="2"
+                                                            CornerRadius="10" />
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+                </Viewbox>
+
+                <Border HorizontalAlignment="Left"
+                        VerticalAlignment="Bottom"
+                        Margin="12"
+                        Padding="8,5"
+                        Background="#D90D1520"
+                        CornerRadius="5"
+                        IsHitTestVisible="False">
+                    <TextBlock Text="Перетаскивание — переместить  •  Голубой маркер — изменить размер"
+                               Foreground="#B9C9DB"
+                               FontSize="11" />
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="1"
+                Grid.Column="2"
+                Background="#D9171B24"
+                BorderBrush="#273244"
+                BorderThickness="1,0,0,0"
+                Padding="14">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Настройка выбранного элемента" FontSize="16" FontWeight="Bold" />
+                    <Expander Header="Как настроить управление" IsExpanded="True" Margin="0,8,0,12">
+                        <Border Background="#202938" CornerRadius="6" Padding="10">
+                            <TextBlock TextWrapping="Wrap"
+                                       Foreground="#D7E3F4"
+                                       Text="1. Запустите игру и выберите её окно.&#10;2. Нажмите «Редактировать поверх игры».&#10;3. Щёлкните правой кнопкой по пустой области.&#10;4. Выберите действие, перетащите его и задайте клавишу.&#10;5. Сохраните схему и нажмите F8.&#10;&#10;F9 всегда останавливает управление." />
+                        </Border>
+                    </Expander>
+
+                    <TextBlock Text="Название профиля" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Понятное название игры или схемы" />
+
+                    <TextBlock Text="Название элемента" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBox Text="{Binding SelectedBinding.Name, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Действие" Foreground="{StaticResource MutedTextBrush}" />
+                    <ComboBox ItemsSource="{Binding BindingKinds}"
+                              SelectedItem="{Binding SelectedBinding.Kind}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource BindingKindLabelConverter}}"
+                                           Foreground="#111827" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <TextBlock Text="Клавиша или кнопка мыши" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBox Text="{Binding SelectedBinding.Hotkey, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Примеры: Q, Space, LeftCtrl, MouseLeft, MouseRight, WASD" />
+
+                    <UniformGrid Columns="2">
+                        <StackPanel Margin="0,0,6,0">
+                            <TextBlock Text="X" />
+                            <TextBox Text="{Binding SelectedBinding.X, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Margin="6,0,0,0">
+                            <TextBlock Text="Y" />
+                            <TextBox Text="{Binding SelectedBinding.Y, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,6,0">
+                            <TextBlock Text="Ширина" />
+                            <TextBox Text="{Binding SelectedBinding.Width, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                        <StackPanel Margin="6,0,0,0">
+                            <TextBlock Text="Высота" />
+                            <TextBox Text="{Binding SelectedBinding.Height, UpdateSourceTrigger=PropertyChanged}" />
+                        </StackPanel>
+                    </UniformGrid>
+
+                    <TextBlock Text="Цвет элемента" />
+                    <TextBox Text="{Binding SelectedBinding.Color, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="Видимость элемента" />
+                    <Slider Minimum="0.05" Maximum="1" Value="{Binding SelectedBinding.Opacity}" Margin="0,3,0,10" />
+                    <TextBlock Text="Длительность, мс" />
+                    <TextBox Text="{Binding SelectedBinding.HoldMilliseconds, UpdateSourceTrigger=PropertyChanged}" />
+                    <CheckBox Content="Элемент активен" IsChecked="{Binding SelectedBinding.IsActive}" Margin="0,2,0,10" />
+                    <TextBlock Text="Комментарий / подсказка" />
+                    <TextBox MinHeight="64"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             Text="{Binding SelectedBinding.Comment, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="2"
+                Grid.ColumnSpan="3"
+                Background="#DD0D1118"
+                BorderBrush="#273244"
+                BorderThickness="0,1,0,0"
+                Padding="12,8">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top">
+                    <TextBlock Text="Журнал работы" FontWeight="Bold" />
+                    <TextBlock Text="  При проблемах сначала проверьте выбранное целевое окно."
+                               Foreground="{StaticResource MutedTextBrush}" />
+                    <Button DockPanel.Dock="Right"
+                            Content="Копировать журнал"
+                            Command="{Binding CopyLogsCommand}" />
+                </DockPanel>
+                <ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12" />
+            </DockPanel>
+        </Border>
+    </Grid>
 </Window>

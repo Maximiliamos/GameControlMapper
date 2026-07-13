@@ -6,6 +6,7 @@ namespace GameControlMapper.ViewModels;
 public sealed class BindingViewModel : ObservableObject
 {
     private readonly ControlBinding _model;
+    private bool _isSelected;
 
     public BindingViewModel(ControlBinding model)
     {
@@ -13,6 +14,23 @@ public sealed class BindingViewModel : ObservableObject
     }
 
     public ControlBinding Model => _model;
+
+    /// <summary>
+    /// Visual selection state used by the interactive profile editors. It is not persisted.
+    /// </summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+
+    internal void RefreshGeometry()
+    {
+        OnPropertyChanged(nameof(X));
+        OnPropertyChanged(nameof(Y));
+        OnPropertyChanged(nameof(Width));
+        OnPropertyChanged(nameof(Height));
+    }
 
     public string Name
     {
@@ -36,9 +54,18 @@ public sealed class BindingViewModel : ObservableObject
             {
                 _model.Kind = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsHotkeyReadOnly));
+                OnPropertyChanged(nameof(CanEditHotkey));
+                OnPropertyChanged(nameof(UsesDuration));
+                OnPropertyChanged(nameof(CanToggleActive));
             }
         }
     }
+
+    public bool IsHotkeyReadOnly => Kind == BindingKind.Joystick;
+    public bool CanEditHotkey => !IsHotkeyReadOnly;
+    public bool UsesDuration => Kind is BindingKind.Hold or BindingKind.Swipe;
+    public bool CanToggleActive => Kind != BindingKind.Aim;
 
     public string Hotkey
     {
@@ -49,9 +76,20 @@ public sealed class BindingViewModel : ObservableObject
             {
                 _model.Hotkey = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayHotkey));
             }
         }
     }
+
+    public string DisplayHotkey => Hotkey.ToUpperInvariant() switch
+    {
+        "MOUSELEFT" or "MOUSE1" => "ЛКМ",
+        "MOUSERIGHT" or "MOUSE2" => "ПКМ",
+        "MOUSEMIDDLE" or "MOUSE3" => "СКМ",
+        "LEFTCTRL" or "RIGHTCTRL" or "CTRL" or "CONTROL" => "Ctrl",
+        "ESCAPE" => "Esc",
+        _ => Hotkey
+    };
 
     public double X
     {

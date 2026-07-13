@@ -22,6 +22,13 @@ public sealed class GameWindowService
                 return true;
             }
 
+            // A minimized top-level window reports unusable client geometry and
+            // cannot host either touch mapping or the interactive overlay editor.
+            if (IsIconic(hWnd))
+            {
+                return true;
+            }
+
             var buffer = new char[512];
             var length = NativeMethods.GetWindowText(hWnd, buffer, buffer.Length);
             var title = new string(buffer, 0, length).Trim();

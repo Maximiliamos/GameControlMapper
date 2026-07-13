@@ -57,8 +57,16 @@ public sealed class MainViewModel : ObservableObject
         SelectAreaCommand = new RelayCommand(_ => SelectAreaRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         PickCenterCommand = new RelayCommand(_ => PickCenterRequested?.Invoke(this, EventArgs.Empty), _ => SelectedBinding is not null);
         RefreshWindowsCommand = new RelayCommand(_ => RefreshTargetWindows());
+        OpenControlEditorCommand = new AsyncRelayCommand(_ => OpenControlEditorAsync());
 
-        _mappingEngine.ActiveChanged += (_, active) => IsMappingActive = active;
+        _mappingEngine.ActiveChanged += (_, active) =>
+        {
+            IsMappingActive = active;
+            if (!active)
+            {
+                RaiseOnUi(() => HideOverlayRequested?.Invoke(this, EventArgs.Empty));
+            }
+        };
         _mappingEngine.OverlayToggleRequested += (_, _) => RaiseOnUi(() => ToggleOverlayRequested?.Invoke(this, EventArgs.Empty));
         _mappingEngine.EditorRequested += (_, _) => RaiseOnUi(() => EditorRequested?.Invoke(this, EventArgs.Empty));
         _ = InitializeAsync();
@@ -82,7 +90,10 @@ public sealed class MainViewModel : ObservableObject
     public event EventHandler? SelectAreaRequested;
     public event EventHandler? PickCenterRequested;
     public event EventHandler? ToggleOverlayRequested;
+    public event EventHandler? ShowOverlayRequested;
+    public event EventHandler? HideOverlayRequested;
     public event EventHandler? EditorRequested;
+    public event EventHandler? ControlEditorRequested;
 
     public AsyncRelayCommand NewProfileCommand { get; }
     public AsyncRelayCommand LoadProfileCommand { get; }
@@ -102,6 +113,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand SelectAreaCommand { get; }
     public RelayCommand PickCenterCommand { get; }
     public RelayCommand RefreshWindowsCommand { get; }
+    public AsyncRelayCommand OpenControlEditorCommand { get; }
 
     public GameWindowInfo? SelectedTargetWindow
     {
@@ -168,8 +180,23 @@ public sealed class MainViewModel : ObservableObject
         get => _selectedBinding;
         set
         {
+            if (ReferenceEquals(_selectedBinding, value))
+            {
+                return;
+            }
+
+            if (_selectedBinding is not null)
+            {
+                _selectedBinding.IsSelected = false;
+            }
+
             if (SetProperty(ref _selectedBinding, value))
             {
+                if (_selectedBinding is not null)
+                {
+                    _selectedBinding.IsSelected = true;
+                }
+
                 DuplicateBindingCommand.RaiseCanExecuteChanged();
                 DeleteBindingCommand.RaiseCanExecuteChanged();
                 CopyBindingCommand.RaiseCanExecuteChanged();
@@ -229,6 +256,117 @@ public sealed class MainViewModel : ObservableObject
 
         SelectedBinding.Width = Math.Max(10, SelectedBinding.Width + dx);
         SelectedBinding.Height = Math.Max(10, SelectedBinding.Height + dy);
+    }
+
+    public async Task<bool> CommitControlEditorAsync(IReadOnlyList<ControlBinding> editedBindings)
+    {
+        ArgumentNullException.ThrowIfNull(editedBindings);
+
+        var committedBindings = editedBindings.Select(ControlEditorSession.CopyExact).ToList();
+        var candidate = ControlEditorSession.CopyProfileWithBindings(CurrentProfile, committedBindings);
+        var camera = candidate.Bindings.FirstOrDefault(binding => binding.Kind == BindingKind.Aim);
+        if (camera is not null)
+        {
+            candidate.Camera.ActivationHotkey = camera.Hotkey;
+            candidate.Camera.AnchorX = camera.CenterX;
+            candidate.Camera.AnchorY = camera.CenterY;
+        }
+
+        var semanticErrors = ValidateEditorSemantics(candidate);
+        var validation = _profileValidator.Validate(candidate);
+        if (!validation.IsValid || semanticErrors.Count > 0)
+        {
+            _logger.LogWarning(
+                "Overlay editor rejected invalid profile: structural={StructuralErrors}; semantic={SemanticErrors}",
+                string.Join("; ", validation.Errors.Select(error => $"{error.FieldPath}:{error.Code}")),
+                string.Join("; ", semanticErrors));
+            System.Windows.MessageBox.Show(
+                "Не удалось сохранить схему: проверьте названия, клавиши и положение элементов. WASD можно назначить только одному джойстику; F8–F11 зарезервированы программой.",
+                "Редактор управления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
+        try
+        {
+            await _profileStore.SaveAsync(candidate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Overlay editor failed to save profile");
+            System.Windows.MessageBox.Show(
+                "Не удалось сохранить профиль. Исходная схема оставлена без изменений.",
+                "Редактор управления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return false;
+        }
+
+        // From this point the candidate is durable on disk; memory and runtime must
+        // converge to that exact saved object and must never claim a rollback.
+        CurrentProfile = candidate;
+        Bindings.Clear();
+        foreach (var binding in candidate.Bindings)
+        {
+            Bindings.Add(new BindingViewModel(binding));
+        }
+
+        SelectedBinding = Bindings.FirstOrDefault();
+        _mappingEngine.SetProfile(candidate);
+        try
+        {
+            await RefreshProfilesAsync(candidate.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Profile was saved, but the profile list could not be refreshed");
+        }
+
+        _logger.LogInformation("Overlay editor changes committed: {Count} bindings", candidate.Bindings.Count);
+        return true;
+    }
+
+    internal static IReadOnlyList<string> ValidateEditorSemantics(MapperProfile profile)
+    {
+        var errors = new List<string>();
+        var joysticks = profile.Bindings.Count(binding => binding.Kind == BindingKind.Joystick);
+        var cameras = profile.Bindings.Count(binding => binding.Kind == BindingKind.Aim);
+        if (joysticks > 1) errors.Add("Only one WASD joystick is supported.");
+        if (cameras > 1) errors.Add("Only one camera binding is supported.");
+
+        var reservedHotkeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            profile.EnableHotkey,
+            profile.DisableHotkey,
+            profile.ToggleOverlayHotkey,
+            profile.EditorHotkey
+        };
+
+        foreach (var binding in profile.Bindings)
+        {
+            var isWasd = string.Equals(binding.Hotkey, "WASD", StringComparison.OrdinalIgnoreCase);
+            if (binding.Kind == BindingKind.Joystick && !isWasd)
+            {
+                errors.Add($"Joystick '{binding.Name}' must use WASD.");
+            }
+            else if (binding.Kind != BindingKind.Joystick && isWasd)
+            {
+                errors.Add($"Binding '{binding.Name}' cannot use WASD.");
+            }
+
+            if (reservedHotkeys.Contains(binding.Hotkey))
+            {
+                errors.Add($"Binding '{binding.Name}' uses a reserved lifecycle hotkey.");
+            }
+        }
+
+        return errors;
+    }
+
+    public void NotifyControlEditorTargetLost()
+    {
+        _logger.LogInformation("Overlay editor closed because the selected target window became unavailable");
     }
 
     private async Task InitializeAsync()
@@ -650,14 +788,61 @@ public sealed class MainViewModel : ObservableObject
         }
         _mappingEngine.SetProfile(CurrentProfile);
         _mappingEngine.Start();
-        ToggleOverlayRequested?.Invoke(this, EventArgs.Empty);
+        if (_mappingEngine.IsActive)
+        {
+            ShowOverlayRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private async Task OpenControlEditorAsync()
+    {
+        if (CurrentProfile.Window.WindowHandle == 0)
+        {
+            _logger.LogInformation("Overlay editor was not opened because no target window is selected");
+            System.Windows.MessageBox.Show(
+                "Сначала выберите окно игры в разделе «Целевое окно».",
+                "Редактор управления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (IsMappingActive)
+        {
+            var shutdown = await _mappingEngine.StopAsync("open control editor");
+            if (!shutdown.Succeeded)
+            {
+                _logger.LogWarning("Overlay editor rejected because touch shutdown did not complete successfully");
+                System.Windows.MessageBox.Show(
+                    "Редактор не открыт: не удалось безопасно завершить активные касания. Нажмите F9 и повторите попытку.",
+                    "Редактор управления",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+        }
+
+        if (!_gameWindowService.ActivateWindow(new IntPtr(CurrentProfile.Window.WindowHandle)))
+        {
+            _logger.LogWarning("Overlay editor rejected because the selected target could not be activated");
+            System.Windows.MessageBox.Show(
+                "Не удалось показать выбранное окно игры. Разверните его, обновите список окон и повторите попытку.",
+                "Редактор управления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        await Task.Delay(120);
+
+        ControlEditorRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void RefreshTargetWindows()
     {
         var currentHandle=CurrentProfile.Window.WindowHandle;var windows=_gameWindowService.FindWindows().Where(x=>x.Handle!=0).ToArray();
         TargetWindows.Clear();foreach(var window in windows)TargetWindows.Add(window);
-        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?4:x.ProcessName.Equals("MuMuNxDevice",StringComparison.OrdinalIgnoreCase)?3:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?2:1).FirstOrDefault();
+        SelectedTargetWindow=TargetWindows.FirstOrDefault(x=>x.Handle.ToInt64()==currentHandle)??TargetWindows.Where(x=>x.ProcessName.Contains("MuMu",StringComparison.OrdinalIgnoreCase)||x.ProcessName.Contains("Nemu",StringComparison.OrdinalIgnoreCase)||x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.ProcessName.Equals("MuMuNxDevice",StringComparison.OrdinalIgnoreCase)?5:x.Title.Contains("Tanks Blitz",StringComparison.OrdinalIgnoreCase)?4:x.ProcessName.Equals("MuMuNxMain",StringComparison.OrdinalIgnoreCase)?3:1).FirstOrDefault();
         OnPropertyChanged(nameof(TargetWindowStatus));
     }
 
