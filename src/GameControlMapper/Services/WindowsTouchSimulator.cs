@@ -60,7 +60,7 @@ public sealed class WindowsTouchSimulator : ITouchSimulator
                 return;
             }
 
-            _logger.LogInformation("TouchDown: contact {ContactId} at ({X}, {Y})", contactId, x, y);
+            _logger.LogTrace("Legacy touch contact started");
             _contacts[contactId] = (x, y);
             if (InjectSingleContact(contactId, (x, y), 0))
             {
@@ -107,7 +107,7 @@ public sealed class WindowsTouchSimulator : ITouchSimulator
                 return;
             }
 
-            _logger.LogInformation("TouchUp: contact {ContactId}", contactId);
+            _logger.LogTrace("Legacy touch contact ended");
             if (_contacts.TryGetValue(contactId, out var pos))
             {
                 InjectSingleContact(contactId, pos, 2);

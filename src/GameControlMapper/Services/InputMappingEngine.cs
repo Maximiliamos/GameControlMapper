@@ -354,7 +354,7 @@ public sealed class InputMappingEngine : IDisposable
                 _logger.LogError("Camera start rejected: mouse movement suppression hook is unavailable");
                 return;
             }
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Camera: RawAnchor={RX},{RY} (profile {PW}x{PH}) → PhysicalAnchor={SX},{SY}",
                 rawAnchorX, rawAnchorY, _profile.ResolutionWidth, _profile.ResolutionHeight,
                 scaledAnchor.X, scaledAnchor.Y);
@@ -378,14 +378,14 @@ public sealed class InputMappingEngine : IDisposable
             .OrderByDescending(binding => binding.Priority)
             .ToArray();
 
-        _logger.LogInformation("HandlePressedInput: Found {Count} bindings for virtual key {VirtualKey}", matches.Length, virtualKey);
+        _logger.LogDebug("Mapped input matched {Count} actions", matches.Length);
 
         foreach (var binding in matches)
         {
             if (binding.Kind == BindingKind.MouseArea)
             {
                 // Handle MouseArea as hold: TouchDown now, TouchUp later on button release
-                _logger.LogInformation("HandlePressedInput: Processing MouseArea binding '{Name}'", binding.Name);
+                _logger.LogDebug("Starting mapped mouse-area action");
                 if (!_activeMouseAreas.ContainsKey(binding.Id))
                 {
                     if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) continue;
@@ -431,7 +431,7 @@ public sealed class InputMappingEngine : IDisposable
 
     private void HandleReleasedInput(int virtualKey)
     {
-        _logger.LogInformation("HandleReleasedInput: Called for virtual key {VirtualKey}", virtualKey);
+        _logger.LogDebug("Mapped input release received");
         
         if (IsWasdKey(virtualKey))
         {
@@ -452,7 +452,7 @@ public sealed class InputMappingEngine : IDisposable
                         .Contains(virtualKey))
                 .ToArray();
             
-            _logger.LogInformation("HandleReleasedInput: Found {Count} MouseArea bindings to release", releasedBindings.Length);
+            _logger.LogDebug("Releasing {Count} mapped mouse-area actions", releasedBindings.Length);
             
             foreach (var binding in releasedBindings)
             {
@@ -473,7 +473,7 @@ public sealed class InputMappingEngine : IDisposable
         }
 
         var targetRect = _targetSession.Current?.ClientRect;
-        _logger.LogInformation(
+        _logger.LogDebug(
             "UpdateJoystickBindings: ProfileResolution={PW}x{PH}, TargetClient={TargetClient}",
             _profile.ResolutionWidth, _profile.ResolutionHeight, targetRect);
 
@@ -498,7 +498,7 @@ public sealed class InputMappingEngine : IDisposable
             if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaledCenter) ||
                 !TryScalePointToTarget(targetX, targetY, out var scaledTarget)) continue;
 
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Joystick: BindingCenter={BCX},{BCY} → ScaledCenter={SCX},{SCY}, " +
                 "BindingTarget={BTX},{BTY} → ScaledTarget={STX},{STY}",
                 binding.CenterX, binding.CenterY, scaledCenter.X, scaledCenter.Y,
@@ -546,7 +546,7 @@ public sealed class InputMappingEngine : IDisposable
             finally { actionLock.Release(); }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
-        catch (Exception ex) { _logger.LogError(ex, "Touch binding {Binding} failed", binding.Name); }
+        catch (Exception ex) { _logger.LogError(ex, "Mapped touch action failed"); }
     }
 
     private async Task ExecuteTouchBindingAsync(ControlBinding binding, CancellationToken cancellationToken)
@@ -606,7 +606,7 @@ public sealed class InputMappingEngine : IDisposable
                     }
                 case BindingKind.Macro:
                 case BindingKind.Sequence:
-                    _logger.LogWarning("UnsupportedInBeta: binding {BindingId} ({BindingKind}) was rejected without creating touch contacts.",binding.Id,binding.Kind);
+                    _logger.LogWarning("UnsupportedInBeta: action kind {BindingKind} was rejected without creating touch contacts.",binding.Kind);
                     break;
             }
         }
@@ -685,7 +685,7 @@ public sealed class InputMappingEngine : IDisposable
         {
             if (!_activeMouseAreas.Remove(binding.Id, out var state)) continue;
             _touchEngine.EndTouch(state.Lease);
-            _logger.LogInformation("MouseArea '{Name}' released because camera combat mode was disabled.", binding.Name);
+            _logger.LogDebug("Mapped mouse-area action released because camera combat mode was disabled");
         }
     }
 

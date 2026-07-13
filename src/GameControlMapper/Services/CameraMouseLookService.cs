@@ -115,7 +115,7 @@ public sealed class CameraMouseLookService : IDisposable
             Interlocked.Exchange(ref _rebaseCount, 0);
             _active = true;
             started = true;
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Camera armed without a touch-down; safe stroke radii are {RadiusX:F0}x{RadiusY:F0}px",
                 _radiusX, _radiusY);
         }
@@ -335,7 +335,7 @@ public sealed class CameraMouseLookService : IDisposable
             {
                 if (!_active || _disposed || generation != _generation || !ReferenceEquals(_lease, nextLease)) return;
                 var rebaseNumber = Interlocked.Increment(ref _rebaseCount);
-                _logger.LogInformation("Camera stroke handoff {RebaseNumber} completed without an empty touch frame", rebaseNumber);
+                _logger.LogDebug("Camera stroke handoff completed without an empty touch frame");
                 var pendingDx = _pendingDx;
                 var pendingDy = _pendingDy;
                 _pendingDx = _pendingDy = 0;

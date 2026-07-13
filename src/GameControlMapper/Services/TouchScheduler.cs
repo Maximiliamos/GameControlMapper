@@ -215,7 +215,7 @@ public class TouchScheduler : IDisposable
     {
         if (!_context.IsDebugMode) return;
         var contacts = frame.GetContacts();
-        _logger.LogInformation("FRAME {FrameId} | Timestamp: {Timestamp}", frame.FrameId, DateTime.Now.ToString("HH:mm:ss.fff"));
+        _logger.LogTrace("Scheduler debug frame created");
         foreach (var contact in contacts)
         {
             string contactType = contact.ContactId switch
@@ -226,7 +226,7 @@ public class TouchScheduler : IDisposable
                 3 => "Aim",
                 _ => "Other"
             };
-            _logger.LogInformation(
+            _logger.LogTrace(
                 "  Contact {ContactId} | Type: {Type} | State: {State} | X: {X:F0} | Y: {Y:F0}",
                 contact.ContactId,
                 contactType,
@@ -234,7 +234,7 @@ public class TouchScheduler : IDisposable
                 contact.X,
                 contact.Y);
         }
-        _logger.LogInformation("  InjectTouchInput({Count})", contacts.Length);
+        _logger.LogTrace("Touch backend debug batch size: {Count}", contacts.Length);
     }
 
     public void Dispose()

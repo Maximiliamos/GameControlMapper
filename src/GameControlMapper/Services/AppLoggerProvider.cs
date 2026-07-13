@@ -60,6 +60,11 @@ public sealed class AppLoggerProvider : ILoggerProvider
 
             var shortCategory = _categoryName.Split('.').LastOrDefault() ?? _categoryName;
             var text = formatter(state, exception);
+            if (ProductionLogPrivacy.ContainsInputHistory(text) ||
+                ProductionLogPrivacy.ContainsInputHistory(exception?.ToString()))
+            {
+                return;
+            }
             if (exception is not null)
             {
                 text = $"{text}: {exception.Message}";

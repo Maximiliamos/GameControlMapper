@@ -41,8 +41,20 @@ public sealed class DiagnosticExportService
             var informational=asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
             var metadata=new StringBuilder().AppendLine($"Version: {asm.GetName().Version}").AppendLine($"InformationalVersion: {informational}").AppendLine($"Commit: {informational}").AppendLine($"Windows: {Environment.OSVersion.VersionString}").AppendLine($".NET: {RuntimeInformation.FrameworkDescription}").AppendLine("DPI awareness: PerMonitorV2").AppendLine("Backend capabilities: maxContacts=10 touchInjection=true").AppendLine("Capability matrix:");
             foreach(var capability in _capabilities.Items)metadata.AppendLine($"- {capability.Id}: {capability.Status} ({capability.Limitation})");
-            metadata.AppendLine($"Last session: {_session.Last}").AppendLine($"Profiles: {string.Join(", ",names.Select(Path.GetFileName))}").AppendLine($"Profile backups present: {Directory.Exists(Path.Combine(AppContext.BaseDirectory,"Profiles"))&&Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory,"Profiles"),"*.bak").Any()}").AppendLine("Target status: not captured when export is outside an active mapping session");
-            await File.WriteAllTextAsync(Path.Combine(temp,"metadata.txt"),FileLogSink.Redact(metadata.ToString()),ct);await File.WriteAllTextAsync(Path.Combine(temp,"exceptions.txt"),string.Join(Environment.NewLine,_crashes?.Exceptions??[]),ct);await File.WriteAllTextAsync(Path.Combine(temp,"README.txt"),"Diagnostic metadata and recent application logs. Profile contents, pressed keys, process lists, and other window titles are intentionally excluded.",ct);_logs.Flush();if(Directory.Exists(_logs.DirectoryPath))foreach(var file in Directory.EnumerateFiles(_logs.DirectoryPath,"game-control-mapper.log*"))File.Copy(file,Path.Combine(temp,Path.GetFileName(file)),true);if(File.Exists(zipPath))File.Delete(zipPath);ZipFile.CreateFromDirectory(temp,zipPath,CompressionLevel.Fastest,false);
+            metadata.AppendLine($"Last session: {_session.Last}").AppendLine($"Profile count: {names.Count}").AppendLine($"Profile backups present: {Directory.Exists(Path.Combine(AppContext.BaseDirectory,"Profiles"))&&Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory,"Profiles"),"*.bak").Any()}").AppendLine("Target status: not captured when export is outside an active mapping session");
+            await File.WriteAllTextAsync(Path.Combine(temp,"metadata.txt"),ProductionLogPrivacy.FilterDiagnosticText(metadata.ToString()),ct);
+            await File.WriteAllTextAsync(Path.Combine(temp,"exceptions.txt"),ProductionLogPrivacy.FilterDiagnosticText(string.Join(Environment.NewLine,_crashes?.Exceptions??[])),ct);
+            await File.WriteAllTextAsync(Path.Combine(temp,"README.txt"),"Diagnostic metadata and privacy-filtered application logs. Profile contents, input history, process lists, and unrelated window titles are excluded.",ct);
+            _logs.Flush();
+            if(Directory.Exists(_logs.DirectoryPath))
+            {
+                foreach(var file in Directory.EnumerateFiles(_logs.DirectoryPath,"game-control-mapper.log*"))
+                {
+                    var filtered=ProductionLogPrivacy.FilterDiagnosticText(await File.ReadAllTextAsync(file,ct));
+                    await File.WriteAllTextAsync(Path.Combine(temp,Path.GetFileName(file)),filtered,ct);
+                }
+            }
+            if(File.Exists(zipPath))File.Delete(zipPath);ZipFile.CreateFromDirectory(temp,zipPath,CompressionLevel.Fastest,false);
         }
         finally{try{Directory.Delete(temp,true);}catch{}}
     }
