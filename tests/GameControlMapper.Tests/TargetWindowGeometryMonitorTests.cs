@@ -6,6 +6,7 @@ using Xunit;
 
 namespace GameControlMapper.Tests;
 
+[Collection(TimingSensitiveIntegrationCollection.Name)]
 public sealed class TargetWindowGeometryMonitorTests
 {
     [Fact] public void SchedulerFrame_DoesNotCallGeometryProvider() { var p=new CountingProvider(); var m=new TargetWindowSessionManager(p,NullLogger<TargetWindowSessionManager>.Instance); m.TryStart(1,new(100,100)); for(var i=0;i<100;i++) Assert.True(m.ValidateActiveSession()); Assert.Equal(1,p.Count); }

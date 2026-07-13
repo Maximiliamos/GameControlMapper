@@ -8,6 +8,7 @@ using Xunit;
 
 namespace GameControlMapper.Tests;
 
+[Collection(TimingSensitiveIntegrationCollection.Name)]
 public sealed class WindowCoordinateIntegrationTests
 {
     [Theory]
