@@ -26,7 +26,7 @@ public sealed class WindowCoordinateIntegrationTests
     [Fact]public async Task UnsupportedMacro_IsNotAddedToSuppressionSnapshot()=>await UnsupportedBinding_IsNotAddedToSuppressionSnapshot(BindingKind.Macro);
     [Fact]public async Task UnsupportedSequence_IsNotAddedToSuppressionSnapshot()=>await UnsupportedBinding_IsNotAddedToSuppressionSnapshot(BindingKind.Sequence);
     [Fact]public void UnsupportedInputMode_IsNotSuppressed(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap,GameControlMapper.Models.InputMode.RawInput);Assert.False(f.Mapping.IsActive);Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);}
-    [Fact]public async Task UnsupportedBinding_DoesNotCallSendInput(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Macro);f.Press(Key.Q);await Task.Delay(75);Assert.Equal(0,f.Input.ExecuteCount);}
+    [Fact]public async Task UnsupportedBinding_DoesNotCallSendInput(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Macro);f.Press(Key.Q);await Task.Delay(75);Assert.Empty(f.Backend.Contacts(TouchState.Down));}
     [Fact]public async Task UnsupportedBinding_DoesNotAcquireTouchLease(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Sequence);f.Press(Key.Q);await Task.Delay(75);Assert.Empty(f.Contacts.ActiveContacts);}
     [Fact]public void UnsupportedBinding_DoesNotBlockPhysicalKey(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Macro);Assert.False(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));}
     [Fact]public void SupportedTap_IsStillSuppressedWhileMappingActive(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);Assert.True(f.KeyboardHook.ShouldSuppressKey!(KeyInterop.VirtualKeyFromKey(Key.Q)));}
@@ -322,7 +322,6 @@ public sealed class WindowCoordinateIntegrationTests
         public CameraMouseLookService Camera { get; }
         public InputMappingEngine Mapping { get; }
         public MapperProfile Profile { get; }
-        public RecordingInputSimulator Input { get; }
         public MappingSessionDiagnostics Diagnostics { get; }=new();
 
         public Fixture(PhysicalClientRect rect)
@@ -335,7 +334,6 @@ public sealed class WindowCoordinateIntegrationTests
             TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Contacts);
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Contacts, Backend, new FrameContext(), Session);
             Scheduler.Start();
-            Input = new RecordingInputSimulator();
             Camera = new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance, scheduler: Scheduler);
             MouseHook = new MouseHookService(NullLogger<MouseHookService>.Instance);
             KeyboardHook = new KeyboardHookService(NullLogger<KeyboardHookService>.Instance);
@@ -343,9 +341,8 @@ public sealed class WindowCoordinateIntegrationTests
                 KeyboardHook,
                 MouseHook,
                 Camera,
-                new XInputGamepadMapper(Input, NullLogger<XInputGamepadMapper>.Instance),
-                Input, new NullTouchSimulator(), TouchEngine, Scheduler, new HotkeyParser(), Session,
-                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,diagnostics:Diagnostics);
+                TouchEngine, Scheduler, new HotkeyParser(), Session,
+                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,sessionDiagnostics:Diagnostics,startNativeHooks:false);
             Profile = MapperProfile.CreateDefault();
             Profile.ResolutionWidth = 1000;
             Profile.ResolutionHeight = 500;
@@ -492,33 +489,4 @@ public sealed class WindowCoordinateIntegrationTests
         public void Shutdown() { }
     }
 
-    private sealed class NullTouchSimulator : ITouchSimulator
-    {
-        public Task TapAsync(double x, double y, int milliseconds = 35, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DoubleTapAsync(double x, double y, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task HoldAsync(int contactId, double x, double y, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task SwipeAsync(int contactId, double startX, double startY, double endX, double endY, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void TouchDown(int contactId, double x, double y) { }
-        public void TouchMove(int contactId, double x, double y) { }
-        public void TouchUp(int contactId) { }
-        public void ReleaseAll() { }
-    }
-
-    private sealed class RecordingInputSimulator : IInputSimulator
-    {
-        public int ExecuteCount{get;private set;}
-        public Task ExecuteBindingAsync(ControlBinding binding, CancellationToken cancellationToken = default){ExecuteCount++;return Task.CompletedTask;}
-        public Task ClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DoubleClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task SwipeAsync(double startX, double startY, double endX, double endY, int durationMilliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void MouseDownAt(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void MouseMoveTo(double x, double y) { }
-        public void MouseUp(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void MouseDown(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void KeyDown(string key) { }
-        public void KeyUp(string key) { }
-        public (int X, int Y) GetCursorPosition() => (0, 0);
-        public void RestoreCursor(int x, int y) { }
-        public void MoveRelative(int dx, int dy) { }
-    }
 }

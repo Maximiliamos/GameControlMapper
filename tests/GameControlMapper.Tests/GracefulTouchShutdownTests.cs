@@ -278,7 +278,6 @@ public sealed class GracefulTouchShutdownTests
             TouchEngine = new TouchEngine(NullLogger<TouchEngine>.Instance, Manager);
             Scheduler = new TouchScheduler(NullLogger<TouchScheduler>.Instance, Manager, Backend, new FrameContext());
             Scheduler.Start();
-            var input = new NullInputSimulator();
             var targetSession = new TargetWindowSessionManager(
                 new FixedGeometryProvider(new PhysicalClientRect(0, 0, 1920, 1080)),
                 NullLogger<TargetWindowSessionManager>.Instance);
@@ -286,15 +285,12 @@ public sealed class GracefulTouchShutdownTests
                 new KeyboardHookService(NullLogger<KeyboardHookService>.Instance),
                 new MouseHookService(NullLogger<MouseHookService>.Instance),
                 new CameraMouseLookService(TouchEngine, NullLogger<CameraMouseLookService>.Instance),
-                new XInputGamepadMapper(input, NullLogger<XInputGamepadMapper>.Instance),
-                input,
-                new NullTouchSimulator(),
                 TouchEngine,
                 Scheduler,
                 new HotkeyParser(),
                 targetSession,
                 new WindowCoordinateTransformer(),
-                NullLogger<InputMappingEngine>.Instance);
+                NullLogger<InputMappingEngine>.Instance,startNativeHooks:false);
             var profile = MapperProfile.CreateDefault();
             profile.Gamepad.Enabled = false;
             profile.Window.WindowHandle = 1;
@@ -313,35 +309,6 @@ public sealed class GracefulTouchShutdownTests
         private readonly PhysicalClientRect _rect;
         public FixedGeometryProvider(PhysicalClientRect rect) => _rect = rect;
         public WindowGeometryResult GetClientRect(nint windowHandle) => WindowGeometryResult.Success(_rect);
-    }
-
-    private sealed class NullTouchSimulator : ITouchSimulator
-    {
-        public Task TapAsync(double x, double y, int milliseconds = 35, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DoubleTapAsync(double x, double y, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task HoldAsync(int contactId, double x, double y, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task SwipeAsync(int contactId, double startX, double startY, double endX, double endY, int milliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void TouchDown(int contactId, double x, double y) { }
-        public void TouchMove(int contactId, double x, double y) { }
-        public void TouchUp(int contactId) { }
-        public void ReleaseAll() { }
-    }
-
-    private sealed class NullInputSimulator : IInputSimulator
-    {
-        public Task ExecuteBindingAsync(ControlBinding binding, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task ClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DoubleClickAsync(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task SwipeAsync(double startX, double startY, double endX, double endY, int durationMilliseconds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void MouseDownAt(double x, double y, SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void MouseMoveTo(double x, double y) { }
-        public void MouseUp(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void MouseDown(SimulatedMouseButton button = SimulatedMouseButton.Left) { }
-        public void KeyDown(string key) { }
-        public void KeyUp(string key) { }
-        public (int X, int Y) GetCursorPosition() => (0, 0);
-        public void RestoreCursor(int x, int y) { }
-        public void MoveRelative(int dx, int dy) { }
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>

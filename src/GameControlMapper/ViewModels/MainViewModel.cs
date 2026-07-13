@@ -5,8 +5,6 @@ using GameControlMapper.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using System.Reflection;
-using System.Diagnostics;
-using System.IO;
 
 namespace GameControlMapper.ViewModels;
 
@@ -18,7 +16,6 @@ public sealed class MainViewModel : ObservableObject
     private readonly DiagnosticExportService _diagnostics;
     private readonly IMapperProfileValidator _profileValidator;
     private readonly GameWindowService _gameWindowService;
-    private readonly OlenemerStatsReader _olenemerStatsReader;
     private MapperProfile _currentProfile = MapperProfile.CreateDefault();
     private string? _selectedProfileName;
     private BindingViewModel? _selectedBinding;
@@ -33,7 +30,7 @@ public sealed class MainViewModel : ObservableObject
         InputMappingEngine mappingEngine,
         AppLogSink logSink,
         ILogger<MainViewModel> logger, DiagnosticExportService diagnostics,IMapperProfileValidator profileValidator,
-        GameWindowService gameWindowService, OlenemerStatsReader olenemerStatsReader)
+        GameWindowService gameWindowService)
     {
         _profileStore = profileStore;
         _mappingEngine = mappingEngine;
@@ -41,7 +38,6 @@ public sealed class MainViewModel : ObservableObject
         _diagnostics=diagnostics;
         _profileValidator=profileValidator;
         _gameWindowService=gameWindowService;
-        _olenemerStatsReader=olenemerStatsReader;
         Logs = logSink.Entries;
         BindingKinds = Enum.GetValues<BindingKind>().Where(k=>k is not BindingKind.Macro and not BindingKind.Sequence).ToArray();
 
@@ -58,8 +54,6 @@ public sealed class MainViewModel : ObservableObject
         ImportProfileCommand = Command("Import profile", _ => ImportProfileAsync());
         ExportProfileCommand = Command("Export profile", _ => ExportProfileAsync());
         ExportDiagnosticsCommand = Command("Export diagnostics", _ => ExportDiagnosticsAsync());
-        OpenBlitzXvmCommand = Command("Open experimental XVM integration", _ => OpenBlitzXvmAsync());
-        RefreshOlenemerStatsCommand = new RelayCommand(_ => RefreshOlenemerStats());
         AddBindingCommand = new RelayCommand(_ => AddBinding());
         DuplicateBindingCommand = new RelayCommand(_ => DuplicateSelected(), _ => SelectedBinding is not null);
         DeleteBindingCommand = new RelayCommand(_ => DeleteSelected(), _ => SelectedBinding is not null);
@@ -106,12 +100,6 @@ public sealed class MainViewModel : ObservableObject
             var commit=info.Split('+').LastOrDefault();return $"Beta {assembly.GetName().Version}"+(commit is {Length:>=7}?$" ({commit[..7]})":"");
         }
     }
-    private string _olenemerStatus = "Данные Blitz XVM ещё не загружены";
-    private string _olenemerAccountSummary = "";
-    private string _olenemerLastBattleSummary = "";
-    public string OlenemerStatus { get => _olenemerStatus; private set => SetProperty(ref _olenemerStatus, value); }
-    public string OlenemerAccountSummary { get => _olenemerAccountSummary; private set => SetProperty(ref _olenemerAccountSummary, value); }
-    public string OlenemerLastBattleSummary { get => _olenemerLastBattleSummary; private set => SetProperty(ref _olenemerLastBattleSummary, value); }
 
     public event EventHandler? SelectAreaRequested;
     public event EventHandler? PickCenterRequested;
@@ -128,8 +116,6 @@ public sealed class MainViewModel : ObservableObject
     public AsyncRelayCommand ImportProfileCommand { get; }
     public AsyncRelayCommand ExportProfileCommand { get; }
     public AsyncRelayCommand ExportDiagnosticsCommand { get; }
-    public AsyncRelayCommand OpenBlitzXvmCommand { get; }
-    public RelayCommand RefreshOlenemerStatsCommand { get; }
     public RelayCommand AddBindingCommand { get; }
     public RelayCommand DuplicateBindingCommand { get; }
     public RelayCommand DeleteBindingCommand { get; }
@@ -413,7 +399,6 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task InitializeAsync()
     {
-        RefreshOlenemerStats();
         var profileNames = await _profileStore.ListProfilesAsync();
         if (profileNames.Count == 0)
         {
@@ -469,32 +454,6 @@ public sealed class MainViewModel : ObservableObject
         UiErrorMessage = "Не удалось выполнить действие. Подробности записаны в журнал.";
     }
 
-    private void RefreshOlenemerStats()
-    {
-        if (!_olenemerStatsReader.TryRead(out var snapshot) || snapshot is null)
-        {
-            OlenemerStatus = "Blitz XVM не создал файлы статистики";
-            OlenemerAccountSummary = "";
-            OlenemerLastBattleSummary = "";
-            return;
-        }
-
-        var winRate = snapshot.Battles == 0 ? 0 : snapshot.Wins * 100d / snapshot.Battles;
-        var averageDamage = snapshot.Battles == 0 ? 0 : snapshot.DamageDealt / snapshot.Battles;
-        OlenemerStatus = $"Обновлено {snapshot.LastUpdatedUtc.ToLocalTime():HH:mm:ss}";
-        OlenemerAccountSummary = $"Бои: {snapshot.Battles:N0} · Победы: {winRate:F1}% · Средний урон: {averageDamage:N0}";
-        OlenemerLastBattleSummary = snapshot.LastBattle is null
-            ? "Последний завершённый бой ещё не записан"
-            : $"{OutcomeLabel(snapshot.LastBattle.Outcome)} · {snapshot.LastBattle.Tank} · урон {snapshot.LastBattle.Damage:N0} · фраги {snapshot.LastBattle.Kills}";
-    }
-
-    private static string OutcomeLabel(string outcome) => outcome.ToLowerInvariant() switch
-    {
-        "win" => "Победа",
-        "lose" or "loss" => "Поражение",
-        "draw" => "Ничья",
-        _ => "Результат боя"
-    };
 
     private async Task NewProfileAsync()
     {
@@ -953,54 +912,6 @@ public sealed class MainViewModel : ObservableObject
         await Task.Delay(120);
 
         ControlEditorRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private async Task OpenBlitzXvmAsync()
-    {
-        var existingWindow = _gameWindowService.FindWindows().FirstOrDefault(window =>
-            window.ProcessName.Equals("Blitz XVM", StringComparison.OrdinalIgnoreCase) ||
-            window.Title.Equals("Olenemer", StringComparison.OrdinalIgnoreCase));
-        if (existingWindow is not null)
-        {
-            if (!_gameWindowService.ActivateWindow(existingWindow.Handle))
-                _logger.LogWarning("Blitz XVM is running, but its window could not be activated");
-            RefreshOlenemerStats();
-            return;
-        }
-
-        var executable = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            "Blitz XVM.exe");
-        if (!File.Exists(executable))
-        {
-            System.Windows.MessageBox.Show(
-                "Файл «Blitz XVM.exe» не найден на рабочем столе. Установите программу отдельно или верните файл на рабочий стол.",
-                "Статистика игроков",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return;
-        }
-
-        try
-        {
-            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
-            _logger.LogInformation("Blitz XVM companion launched");
-            await Task.Delay(600);
-            var launchedWindow = _gameWindowService.FindWindows().FirstOrDefault(window =>
-                window.ProcessName.Equals("Blitz XVM", StringComparison.OrdinalIgnoreCase) ||
-                window.Title.Equals("Olenemer", StringComparison.OrdinalIgnoreCase));
-            if (launchedWindow is not null) _gameWindowService.ActivateWindow(launchedWindow.Handle);
-            RefreshOlenemerStats();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Blitz XVM companion could not be launched");
-            System.Windows.MessageBox.Show(
-                "Не удалось запустить Blitz XVM. Подробности записаны в журнал.",
-                "Статистика игроков",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        }
     }
 
     private void RefreshTargetWindows()

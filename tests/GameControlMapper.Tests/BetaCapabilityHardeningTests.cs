@@ -1,39 +1,141 @@
 using GameControlMapper.Models;
 using GameControlMapper.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.Reflection;
 using Xunit;
 
 namespace GameControlMapper.Tests;
+
 public sealed class BetaCapabilityHardeningTests
 {
-    private static ApplicationCapabilities Cap=>ApplicationCapabilities.Beta;
-    private static string Source(string relative)=>File.ReadAllText(Path.Combine(FindRoot(),relative.Replace('/',Path.DirectorySeparatorChar)));
-    private static string FindRoot(){var d=new DirectoryInfo(AppContext.BaseDirectory);while(d is not null&&!File.Exists(Path.Combine(d.FullName,"GameControlMapper.sln")))d=d.Parent;return d?.FullName??throw new DirectoryNotFoundException();}
-    private static ProfileValidationResult Validate(MapperProfile p)=>new MapperProfileValidator(new HotkeyParser()).Validate(p);
-    [Fact] public void Capabilities_ReportsSupportedBetaFeatures()=>Assert.All(new[]{"windows-touch","keyboard-mouse","target-window","multitouch","camera","diagnostics","profile-backup"},x=>Assert.True(Cap.IsSupported(x)));
-    [Fact] public void Capabilities_ReportsUnsupportedBetaFeatures()=>Assert.All(new[]{"xinput","macro-sequence","raw-input","interception","vigem","adb","pinch","rotation"},x=>Assert.Contains(Cap.Items,c=>c.Id==x&&c.Status==CapabilityStatus.UnsupportedInBeta));
-    [Fact] public void UnsupportedXInput_DoesNotStartPolling()=>Assert.DoesNotContain("_gamepadMapper.Start",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
-    [Fact] public void LegacyProfileWithXInput_LoadsWithWarning(){var p=MapperProfile.CreateDefault();p.Gamepad.Enabled=true;Assert.Contains(Validate(p).Warnings,x=>x.Code=="UnsupportedInBeta");}
-    [Fact] public void UnsupportedMacro_IsRejectedWithoutTouch()=>AssertRejected(BindingKind.Macro);
-    [Fact] public void UnsupportedSequence_IsRejectedWithoutTouch()=>AssertRejected(BindingKind.Sequence);
-    [Fact] public void UnsupportedAction_DoesNotLeaveKeySuppressed()=>Assert.DoesNotContain("ExecuteBindingAsync(binding",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
-    [Fact] public void UnsupportedAction_IsRejectedByRuntimePolicy(){var policy=new RuntimeInputPolicy(Cap);Assert.False(policy.IsBindingKindSupported(BindingKind.Macro));Assert.False(policy.IsBindingKindSupported(BindingKind.Sequence));}
-    [Fact] public void ProductionDi_UsesOnlyWindowsTouchBackend()=>Assert.Contains("AddSingleton<ITouchBackend, WindowsTouchBackend>",Source("src/GameControlMapper/App.xaml.cs"));
-    [Fact] public void ProductionDi_DoesNotRegisterLegacyTouchSimulator()=>Assert.DoesNotContain("AddSingleton<ITouchSimulator",Source("src/GameControlMapper/App.xaml.cs"));
-    [Fact] public void ProductionTouchPath_DoesNotUseFixedContacts()=>Assert.DoesNotContain("FixedContacts",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
-    [Fact] public void ProductionTouchPath_DoesNotUseLegacyDynamicContactApi()=>Assert.DoesNotContain("ContactManager",Source("src/GameControlMapper/Services/InputMappingEngine.cs"));
-    [Fact] public void DebugOverlay_UsesLeaseOwnerMetadata()=>Assert.Contains("lease.OwnerId",Source("src/GameControlMapper/ViewModels/TouchDebugViewModel.cs"));
-    [Fact] public void DebugOverlay_DoesNotInferOwnerFromContactId()=>Assert.DoesNotContain("FixedContacts",Source("src/GameControlMapper/ViewModels/TouchDebugViewModel.cs"));
-    [Fact] public void TwoDynamicContacts_DisplayCorrectOwners(){var a=Lease("camera:look",0);var b=Lease("joystick:move",1);Assert.NotEqual(a.OwnerId,b.OwnerId);}
-    [Fact] public void CameraLease_DisplaysCameraOwner()=>Assert.StartsWith("camera:",Lease("camera:look",0).OwnerId);
-    [Fact] public void JoystickLease_DisplaysBindingOwner()=>Assert.StartsWith("joystick:",Lease("joystick:Move",1).OwnerId);
-    [Fact] public void MouseAreaLease_DisplaysBindingOwner()=>Assert.StartsWith("mouse-area:",Lease("mouse-area:Aim",2).OwnerId);
-    [Fact] public void DiagnosticExport_IncludesCapabilityMatrix()=>Assert.Contains("Capability matrix",Source("src/GameControlMapper/Services/ProductionDiagnostics.cs"));
-    [Fact] public void DiagnosticExport_MarksXInputUnsupported()=>Assert.Contains(Cap.Items,x=>x.Id=="xinput"&&x.Status==CapabilityStatus.UnsupportedInBeta);
-    [Fact] public void MainViewModel_ExposesBetaVersion()=>Assert.Contains("BetaVersion",Source("src/GameControlMapper/ViewModels/MainViewModel.cs"));
-    [Fact] public void InformationalVersion_ContainsCommitWhenProvided()=>Assert.Contains("SourceRevisionId",Source("Directory.Build.props"));
-    [Fact] public void UnsupportedBinding_DoesNotCrashUi()=>Assert.Contains("MessageBox.Show",Source("src/GameControlMapper/ViewModels/MainViewModel.cs"));
-    [Fact] public void UnsupportedBinding_DoesNotCreateAllocatorLease()=>Assert.DoesNotContain("case BindingKind.Macro:",Source("src/GameControlMapper/Services/InputMappingEngine.cs").Split("TouchContactLease? Acquire")[0]);
-    [Fact] public void LegacyProfile_IsNotModifiedDuringCapabilityValidation(){var p=MapperProfile.CreateDefault();p.Gamepad.Enabled=true;var json=System.Text.Json.JsonSerializer.Serialize(p);_ = Validate(p);Assert.Equal(json,System.Text.Json.JsonSerializer.Serialize(p));}
-    private static void AssertRejected(BindingKind kind){var p=MapperProfile.CreateDefault();p.Bindings.Add(new(){Name="legacy",Hotkey="F1",Kind=kind});var r=Validate(p);Assert.True(r.IsValid);Assert.Contains(r.Warnings,x=>x.Code=="UnsupportedInBeta");}
-    private static TouchContactLease Lease(string owner,int id){var ctor=typeof(TouchContactLease).GetConstructors(System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Single();return (TouchContactLease)ctor.Invoke(new object[]{id,1L,owner,1L});}
+    private static ApplicationCapabilities Capabilities => ApplicationCapabilities.Beta;
+    private static ProfileValidationResult Validate(MapperProfile profile) =>
+        new MapperProfileValidator(new HotkeyParser()).Validate(profile);
+
+    [Fact]
+    public void Capabilities_DistinguishAutomatedExperimentalUnsupportedAndUnavailable()
+    {
+        Assert.All(new[] { "windows-touch", "keyboard-mouse", "target-window", "multitouch", "camera", "mixed-dpi", "multi-monitor", "negative-origin", "diagnostics", "profile-backup" },
+            id => Assert.Equal(CapabilityStatus.AutomatedOnly, Find(id).Status));
+        Assert.All(new[] { "tanks-blitz", "xvm" }, id => Assert.Equal(CapabilityStatus.Experimental, Find(id).Status));
+        Assert.All(new[] { "xinput", "macro-sequence", "pinch", "rotation" }, id => Assert.Equal(CapabilityStatus.Unsupported, Find(id).Status));
+        Assert.All(new[] { "raw-input-public", "interception", "vigem", "adb" }, id => Assert.Equal(CapabilityStatus.Unavailable, Find(id).Status));
+    }
+
+    [Fact]
+    public void RuntimePolicy_AllowsOnlyImplementedRuntimeCapabilities()
+    {
+        var policy = new RuntimeInputPolicy(Capabilities);
+        Assert.True(Capabilities.IsRuntimeAvailable("windows-touch"));
+        Assert.False(Capabilities.IsRuntimeAvailable("xinput"));
+        Assert.False(Capabilities.IsRuntimeAvailable("xvm"));
+        Assert.True(policy.IsBindingKindSupported(BindingKind.Tap));
+        Assert.False(policy.IsBindingKindSupported(BindingKind.Macro));
+        Assert.False(policy.IsBindingKindSupported(BindingKind.Sequence));
+    }
+
+    [Fact]
+    public void LegacyProfiles_LoadWithWarningsWithoutBeingModified()
+    {
+        var profile = MapperProfile.CreateDefault();
+        profile.Gamepad.Enabled = true;
+        profile.Bindings.Add(new ControlBinding { Name = "legacy", Hotkey = "F1", Kind = BindingKind.Macro });
+        var before = System.Text.Json.JsonSerializer.Serialize(profile);
+
+        var result = Validate(profile);
+
+        Assert.True(result.IsValid);
+        Assert.Contains(result.Warnings, warning => warning.Code == "UnsupportedInBeta");
+        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(profile));
+    }
+
+    [Fact]
+    public void ProductionContainer_ResolvesCurrentTouchPipelineWithoutLegacyServices()
+    {
+        var services = new ServiceCollection();
+        App.ConfigureServices(services, startNativeHooks: false);
+        services.AddSingleton<IRelativeMouseInputSource, FakeRelativeMouseInputSource>();
+        services.AddSingleton<ITargetWindowActivationMonitor, FakeActivationMonitor>();
+        services.AddSingleton<ITargetWindowGeometryMonitor, FakeGeometryMonitor>();
+
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ITouchBackend) && descriptor.ImplementationType == typeof(WindowsTouchBackend));
+        Assert.DoesNotContain(services, descriptor => IsLegacyType(descriptor.ServiceType) || IsLegacyType(descriptor.ImplementationType));
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        using var engine = provider.GetRequiredService<InputMappingEngine>();
+        Assert.IsType<WindowsTouchBackend>(provider.GetRequiredService<ITouchBackend>());
+    }
+
+    [Theory]
+    [InlineData("GameControlMapper.Services.WindowsTouchSimulator")]
+    [InlineData("GameControlMapper.Services.SendInputSimulator")]
+    [InlineData("GameControlMapper.Services.XInputGamepadMapper")]
+    [InlineData("GameControlMapper.Services.CoordinateScaler")]
+    [InlineData("GameControlMapper.Models.FixedContacts")]
+    public void LegacyImplementations_AreNotCompiled(string fullTypeName) =>
+        Assert.Null(typeof(InputMappingEngine).Assembly.GetType(fullTypeName, throwOnError: false));
+
+    [Fact]
+    public void InputMappingEngine_HasNoLegacyDependencyFields()
+    {
+        var fieldTypes = typeof(InputMappingEngine)
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Select(field => field.FieldType.FullName ?? field.FieldType.Name)
+            .ToArray();
+
+        Assert.DoesNotContain(fieldTypes, IsLegacyTypeName);
+    }
+
+    [Fact]
+    public void AllocatorLeases_PreserveExplicitOwnerMetadataForConcurrentContacts()
+    {
+        var allocator = new TouchContactAllocator(new TouchCapabilities(10, true, false, true), NullLogger<TouchContactAllocator>.Instance);
+        var camera = allocator.TryAcquire(7, "camera:look");
+        var joystick = allocator.TryAcquire(7, "joystick:move");
+        var mouseArea = allocator.TryAcquire(7, "mouse-area:fire");
+
+        Assert.NotNull(camera);
+        Assert.NotNull(joystick);
+        Assert.NotNull(mouseArea);
+        Assert.Equal("camera:look", camera!.OwnerId);
+        Assert.Equal("joystick:move", joystick!.OwnerId);
+        Assert.Equal("mouse-area:fire", mouseArea!.OwnerId);
+        Assert.Equal(3, allocator.ActiveLeases.Select(lease => lease.ContactId).Distinct().Count());
+    }
+
+    [Fact]
+    public void AssemblyInformationalVersion_ContainsSourceRevisionMetadata()
+    {
+        var version = typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        Assert.False(string.IsNullOrWhiteSpace(version));
+        Assert.Contains('+', version!);
+    }
+
+    private static ApplicationCapability Find(string id) => Assert.Single(Capabilities.Items, item => item.Id == id);
+    private static bool IsLegacyType(Type? type) => type is not null && IsLegacyTypeName(type.FullName ?? type.Name);
+    private static bool IsLegacyTypeName(string name) => new[]
+    {
+        "WindowsTouchSimulator", "SendInputSimulator", "XInputGamepadMapper", "CoordinateScaler", "FixedContacts", "ITouchSimulator", "IInputSimulator"
+    }.Any(name.Contains);
+
+    private sealed class FakeRelativeMouseInputSource : IRelativeMouseInputSource
+    {
+        public event Action<int, int>? Moved { add { } remove { } }
+    }
+
+    private sealed class FakeActivationMonitor : ITargetWindowActivationMonitor
+    {
+        public event EventHandler? ActivationChanged { add { } remove { } }
+        public bool TryGetForeground(out nint rootWindow, out uint processId) { rootWindow = 0; processId = 0; return false; }
+        public void Dispose() { }
+    }
+
+    private sealed class FakeGeometryMonitor : ITargetWindowGeometryMonitor
+    {
+        public event EventHandler<long>? Invalidated { add { } remove { } }
+        public void Track(TargetWindowSession session) { }
+        public void Stop(long generation) { }
+        public void Dispose() { }
+    }
 }

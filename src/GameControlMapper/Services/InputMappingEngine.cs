@@ -11,7 +11,6 @@ public sealed class InputMappingEngine : IDisposable
     private readonly KeyboardHookService _keyboardHook;
     private readonly MouseHookService _mouseHook;
     private readonly CameraMouseLookService _cameraMouseLook;
-    private readonly IInputSimulator _inputSimulator;
     private readonly TouchEngine _touchEngine;
     private readonly TouchScheduler _touchScheduler;
     private readonly HotkeyParser _hotkeyParser;
@@ -41,7 +40,6 @@ public sealed class InputMappingEngine : IDisposable
         KeyboardHookService keyboardHook,
         MouseHookService mouseHook,
         CameraMouseLookService cameraMouseLook,
-        IInputSimulator inputSimulator,
         TouchEngine touchEngine,
         TouchScheduler touchScheduler,
         HotkeyParser hotkeyParser,
@@ -54,7 +52,6 @@ public sealed class InputMappingEngine : IDisposable
         _keyboardHook = keyboardHook;
         _mouseHook = mouseHook;
         _cameraMouseLook = cameraMouseLook;
-        _inputSimulator = inputSimulator;
         _touchEngine = touchEngine;
         _touchScheduler = touchScheduler;
         _hotkeyParser = hotkeyParser;
@@ -82,10 +79,6 @@ public sealed class InputMappingEngine : IDisposable
         if(startNativeHooks){_keyboardHook.Start();_mouseHook.Start();}
     }
 
-    // Compatibility constructor for existing tests only; production DI cannot resolve its legacy parameters.
-    public InputMappingEngine(KeyboardHookService keyboardHook,MouseHookService mouseHook,CameraMouseLookService cameraMouseLook,XInputGamepadMapper gamepadMapper,IInputSimulator inputSimulator,ITouchSimulator touchSimulator,TouchEngine touchEngine,TouchScheduler touchScheduler,HotkeyParser hotkeyParser,TargetWindowSessionManager targetSession,WindowCoordinateTransformer transformer,ILogger<InputMappingEngine> logger,ITargetWindowActivationMonitor? activationMonitor=null,ITouchContactAllocator? allocator=null,MappingSessionDiagnostics? diagnostics=null)
-        :this(keyboardHook,mouseHook,cameraMouseLook,inputSimulator,touchEngine,touchScheduler,hotkeyParser,targetSession,transformer,logger,activationMonitor,allocator,diagnostics,startNativeHooks:false){}
-
     public bool IsActive { get; private set; }
     public bool IsCameraControlActive => _cameraMouseLook.IsActive;
     internal InputPermissionSnapshot CurrentInputPermission => Volatile.Read(ref _inputPermission);
@@ -106,8 +99,6 @@ public sealed class InputMappingEngine : IDisposable
             }
 
             _profile = profile;
-            // Always use TouchInjection mode for now
-            Models.InputModeGuard.TouchInjectionMode = true;
         }
     }
 
@@ -576,64 +567,60 @@ public sealed class InputMappingEngine : IDisposable
 
     private async Task ExecuteTouchBindingAsync(ControlBinding binding, CancellationToken cancellationToken)
     {
-        if (Models.InputModeGuard.TouchInjectionMode)
+        TouchContactLease? lease = null;
+        TouchContactLease? Acquire(double x, double y) => _touchEngine.StartTouch(CurrentGeneration, $"binding:{binding.Id}", x, y);
+        switch (binding.Kind)
         {
-            // Use new TouchEngine path for Touch Injection mode
-            TouchContactLease? lease = null;
-            TouchContactLease? Acquire(double x, double y) => _touchEngine.StartTouch(CurrentGeneration, $"binding:{binding.Id}", x, y);
-            switch (binding.Kind)
+            case BindingKind.Tap:
+            case BindingKind.MouseArea:
+            case BindingKind.Aim:
             {
-                case BindingKind.Tap:
-                case BindingKind.MouseArea:
-                case BindingKind.Aim:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
-                        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(lease);
-                        break;
-                    }
-                case BindingKind.DoubleTap:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
-                        await Task.Delay(30, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(lease);
-                        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
-                        await Task.Delay(30, cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(lease);
-                        break;
-                    }
-                case BindingKind.Hold:
-                    {
-                        if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
-                        lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
-                        await Task.Delay(Math.Max(35, binding.HoldMilliseconds), cancellationToken).ConfigureAwait(false);
-                        _touchEngine.EndTouch(lease);
-                        break;
-                    }
-                case BindingKind.Swipe:
-                    {
-                        if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
-                            !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
-                        const int steps = 10;
-                        lease = Acquire(scaledStart.X, scaledStart.Y); if (lease is null) return;
-                        for (int i = 1; i <= steps; i++)
-                        {
-                            double t = (double)i / steps;
-                            double x = scaledStart.X + (scaledEnd.X - scaledStart.X) * t;
-                            _touchEngine.MoveTouch(lease, x, scaledStart.Y);
-                            await Task.Delay(Math.Max(Math.Max(120, binding.HoldMilliseconds) / steps, 10), cancellationToken).ConfigureAwait(false);
-                        }
-                        _touchEngine.EndTouch(lease);
-                        break;
-                    }
-                case BindingKind.Macro:
-                case BindingKind.Sequence:
-                    _logger.LogWarning("UnsupportedInBeta: action kind {BindingKind} was rejected without creating touch contacts.",binding.Kind);
-                    break;
+                if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
+                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                _touchEngine.EndTouch(lease);
+                break;
             }
+            case BindingKind.DoubleTap:
+            {
+                if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
+                await Task.Delay(30, cancellationToken).ConfigureAwait(false);
+                _touchEngine.EndTouch(lease);
+                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+                lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
+                await Task.Delay(30, cancellationToken).ConfigureAwait(false);
+                _touchEngine.EndTouch(lease);
+                break;
+            }
+            case BindingKind.Hold:
+            {
+                if (!TryScalePointToTarget(binding.CenterX, binding.CenterY, out var scaled)) return;
+                lease = Acquire(scaled.X, scaled.Y); if (lease is null) return;
+                await Task.Delay(Math.Max(35, binding.HoldMilliseconds), cancellationToken).ConfigureAwait(false);
+                _touchEngine.EndTouch(lease);
+                break;
+            }
+            case BindingKind.Swipe:
+            {
+                if (!TryScalePointToTarget(binding.X, binding.CenterY, out var scaledStart) ||
+                    !TryScalePointToTarget(binding.X + binding.Width, binding.CenterY, out var scaledEnd)) return;
+                const int steps = 10;
+                lease = Acquire(scaledStart.X, scaledStart.Y); if (lease is null) return;
+                for (int i = 1; i <= steps; i++)
+                {
+                    double t = (double)i / steps;
+                    double x = scaledStart.X + (scaledEnd.X - scaledStart.X) * t;
+                    _touchEngine.MoveTouch(lease, x, scaledStart.Y);
+                    await Task.Delay(Math.Max(Math.Max(120, binding.HoldMilliseconds) / steps, 10), cancellationToken).ConfigureAwait(false);
+                }
+                _touchEngine.EndTouch(lease);
+                break;
+            }
+            case BindingKind.Macro:
+            case BindingKind.Sequence:
+                _logger.LogWarning("Unsupported action kind {BindingKind} was rejected without creating touch contacts.",binding.Kind);
+                break;
         }
     }
 

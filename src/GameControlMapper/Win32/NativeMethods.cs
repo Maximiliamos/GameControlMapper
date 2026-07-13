@@ -285,28 +285,6 @@ public static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool InjectTouchInput(uint count, [In] POINTER_TOUCH_INFO[] contacts);
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct XINPUT_GAMEPAD
-    {
-        public ushort wButtons;
-        public byte bLeftTrigger;
-        public byte bRightTrigger;
-        public short sThumbLX;
-        public short sThumbLY;
-        public short sThumbRX;
-        public short sThumbRY;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct XINPUT_STATE
-    {
-        public uint dwPacketNumber;
-        public XINPUT_GAMEPAD Gamepad;
-    }
-
-    [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
-    public static extern uint XInputGetState(uint dwUserIndex, out XINPUT_STATE pState);
-    
     [DllImport("user32.dll")]
     public static extern IntPtr GetDesktopWindow();
     

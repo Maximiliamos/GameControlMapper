@@ -25,6 +25,5 @@ public sealed class RuntimeInputPolicy
         IsProfileModeSupported(profile.InputMode) && binding.IsActive && !binding.UseNativeInput &&
         IsBindingKindSupported(binding.Kind);
 
-    private bool IsAvailable(string id) =>
-        _capabilities.Items.Any(capability => capability.Id == id && capability.Status != CapabilityStatus.UnsupportedInBeta);
+    private bool IsAvailable(string id)=>_capabilities.IsRuntimeAvailable(id);
 }

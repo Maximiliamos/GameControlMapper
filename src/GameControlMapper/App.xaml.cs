@@ -87,7 +87,7 @@ public partial class App : System.Windows.Application
         finally{Volatile.Write(ref _crashDispatch,0);}
     }
 
-    private static void ConfigureServices(IServiceCollection services)
+    internal static void ConfigureServices(IServiceCollection services,bool startNativeHooks=true)
     {
         var logSink = new AppLogSink();
         var fileLog = new FileLogSink();
@@ -103,8 +103,6 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IProfileStore, ProfileStore>();
         services.AddSingleton<MappingSessionDiagnostics>();
         services.AddSingleton<DiagnosticExportService>();
-        services.AddSingleton<CoordinateScaler>();
-        services.AddSingleton<IInputSimulator, SendInputSimulator>();
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
         services.AddSingleton(provider =>
@@ -128,10 +126,16 @@ public partial class App : System.Windows.Application
         });
         services.AddSingleton(Models.ApplicationCapabilities.Beta);
         services.AddSingleton<RuntimeInputPolicy>();
-        services.AddSingleton<InputMappingEngine>();
+        services.AddSingleton(provider=>new InputMappingEngine(
+            provider.GetRequiredService<KeyboardHookService>(),provider.GetRequiredService<MouseHookService>(),
+            provider.GetRequiredService<CameraMouseLookService>(),provider.GetRequiredService<TouchEngine>(),
+            provider.GetRequiredService<TouchScheduler>(),provider.GetRequiredService<HotkeyParser>(),
+            provider.GetRequiredService<TargetWindowSessionManager>(),provider.GetRequiredService<WindowCoordinateTransformer>(),
+            provider.GetRequiredService<ILogger<InputMappingEngine>>(),provider.GetRequiredService<ITargetWindowActivationMonitor>(),
+            provider.GetRequiredService<ITouchContactAllocator>(),provider.GetRequiredService<MappingSessionDiagnostics>(),
+            provider.GetRequiredService<RuntimeInputPolicy>(),startNativeHooks));
         services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();
-        services.AddSingleton<OlenemerStatsReader>();
         services.AddSingleton<IGameWindowNativeAdapter, WindowsGameWindowNativeAdapter>();
         services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();
         services.AddSingleton<ITargetWindowActivationNativeAdapter, WindowsTargetWindowActivationNativeAdapter>();

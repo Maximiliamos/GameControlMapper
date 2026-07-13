@@ -53,10 +53,6 @@
                     <Button Content="Импорт" Style="{StaticResource CompactButton}" Command="{Binding ImportProfileCommand}" />
                     <Button Content="Экспорт" Style="{StaticResource CompactButton}" Command="{Binding ExportProfileCommand}" />
                     <Button Content="Диагностика" Style="{StaticResource CompactButton}" Command="{Binding ExportDiagnosticsCommand}" />
-                    <Button Content="XVM"
-                            Style="{StaticResource CompactButton}"
-                            Command="{Binding OpenBlitzXvmCommand}"
-                            ToolTip="Запустить Blitz XVM или показать его уже открытое окно. Программа статистики работает отдельно от сенсорного ввода." />
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -316,25 +312,6 @@
                             <TextBlock TextWrapping="Wrap"
                                        Foreground="#D7E3F4"
                                        Text="1. Запустите игру и выберите её окно.&#10;2. Нажмите «Редактировать поверх игры».&#10;3. Щёлкните правой кнопкой по пустой области.&#10;4. Выберите действие, перетащите его и задайте клавишу.&#10;5. Сохраните схему и нажмите F8.&#10;&#10;Ctrl включает обзор камерой; повторный Ctrl возвращает мышь.&#10;F9 всегда останавливает управление." />
-                        </Border>
-                    </Expander>
-
-                    <Expander Header="Статистика Blitz XVM" IsExpanded="False" Margin="0,0,0,12">
-                        <Border Background="#202938" CornerRadius="6" Padding="10">
-                            <StackPanel>
-                                <TextBlock Text="{Binding OlenemerStatus}" Foreground="#93C5FD" />
-                                <TextBlock Text="{Binding OlenemerAccountSummary}" TextWrapping="Wrap" Margin="0,5,0,0" />
-                                <TextBlock Text="{Binding OlenemerLastBattleSummary}" TextWrapping="Wrap" Margin="0,5,0,8" />
-                                <UniformGrid Columns="2">
-                                    <Button Content="Обновить" Command="{Binding RefreshOlenemerStatsCommand}" />
-                                    <Button Content="Открыть XVM" Command="{Binding OpenBlitzXvmCommand}" />
-                                </UniformGrid>
-                                <TextBlock Text="Читаются только агрегаты account_stats.json и итог battle_result.json. DLL и список игроков не загружаются."
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           FontSize="11"
-                                           TextWrapping="Wrap"
-                                           Margin="0,6,0,0" />
-                            </StackPanel>
                         </Border>
                     </Expander>
 
