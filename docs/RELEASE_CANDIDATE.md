@@ -1,23 +1,11 @@
-# Game Control Mapper — beta release candidate
+# Game Control Mapper — публичная beta
 
-Beta supports Windows Touch Injection, keyboard/mouse mapping, target-window coordinates, multitouch, camera, MouseArea, diagnostics and profile backup. XInput, Macro/Sequence, RawInput, Interception, ViGEm, ADB/Android, pinch and rotation are UnsupportedInBeta.
+Это unsigned self-contained beta для Windows 10/11 x64, а не финальный 1.0 и не installer. Отдельный .NET Runtime не требуется.
 
-The `1.0.0-rc.1` archives are validation candidates, not a completed 1.0 release. Run the guided mode in TouchTestHarness and validate its JSON report before finalization.
+Полностью распакуйте архив и запустите `GameControlMapper.exe`. Не включайте mapping, пока не выбрано правильное foreground окно. `F8` запускает mapping, `F9` останавливает и инициирует release всех контактов.
 
-This package targets 64-bit Windows 10/11 and is self-contained; installing a separate .NET runtime is not
-required. Extract the complete ZIP before launch. Run `GameControlMapper.exe`; run
-`GameControlMapper.TouchTestHarness.exe` from its separate archive when performing safe touch validation.
+Реализованы touch bindings, target client coordinates, multitouch allocator, camera handoff, profiles/backups и privacy-filtered diagnostics. Их статус остаётся `AutomatedOnly` до принятого ручного report. Конкретные игры, включая Tanks Blitz, — `Experimental`. XInput, Macro/Sequence, Android/ADB, Interception, ViGEm, pinch и rotation не поддерживаются. XVM/Olenemer отсутствует в beta UI.
 
-The application stores profiles beside the executable in `Profiles` when created. Logs and crash reports are under
-`%LocalAppData%\GameControlMapper\Logs`. Use **Экспорт диагностики** to create a redacted diagnostic ZIP, then attach
-that ZIP together with reproduction steps and the release version when reporting a problem. Do not attach private
-documents or profile JSON unless you have reviewed them yourself.
+Логи находятся в `%LocalAppData%\GameControlMapper\Logs`; профили — в `Profiles` рядом с EXE. Diagnostic ZIP не включает profile JSON и повторно фильтрует историю ввода. Просмотрите ZIP перед отправкой.
 
-Follow `MANUAL_RELEASE_VALIDATION.md`: select TouchTestHarness as target, create a profile matching its client area,
-start with F8, exercise contacts, stop with F9, and confirm zero active contacts and no protocol errors. Real Touch
-Injection, mixed-DPI, negative-origin multi-monitor behavior, target games, and two-minute camera operation remain
-manual validation gates and are not claimed by the automated build.
-
-This is an unsigned beta build, not an installer. Compatibility with every game, anti-cheat, endpoint-protection
-product, or security policy is not guaranteed. The project does not implement anti-cheat bypasses. Stop using the
-build if a game or protection product rejects global hooks or Windows Touch Injection.
+Для безопасной проверки используйте отдельный архив `GameControlMapper-TouchTestHarness-<version>-win-x64.zip` и [MANUAL_RELEASE_VALIDATION.md](MANUAL_RELEASE_VALIDATION.md). Совместимость с играми, античитом и endpoint security не гарантируется; обход защиты не реализован.

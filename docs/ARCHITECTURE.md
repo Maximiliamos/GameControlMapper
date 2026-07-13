@@ -1,98 +1,86 @@
-# Game Control Mapper Architecture
+# Архитектура Game Control Mapper
 
-The application is split into WPF views, MVVM view models, serializable domain models, and services.
+## Границы системы
 
-## Main Modules
+Game Control Mapper — WPF-приложение `net8.0-windows` для Windows x64. Оно использует низкоуровневые keyboard/mouse hooks, внутренний источник относительных физических движений мыши и Windows Touch Injection. DLL в целевой процесс не внедряется, память игры не читается и не изменяется, сетевого протокола и драйвера нет.
 
-- `Models` contains JSON-friendly profile data: profiles, bindings, camera settings, macros, and window binding metadata.
-- `ViewModels` contains UI state and commands. Views should not own profile logic.
-- `Services` contains storage, coordinate scaling, input simulation, keyboard/mouse hooks, logging, and window discovery.
-- `Win32` contains the narrow P/Invoke surface used by hooks, window enumeration, cursor control, and `SendInput`.
-- `UI/Views` contains WPF windows: the main editor, transparent overlay, and capture windows.
+## Основные модули
 
-## Safety Boundary
+- `Models` — сериализуемые профили, bindings, camera/window/gamepad settings, touch frame models и capability matrix.
+- `Services/InputMappingEngine` — lifecycle mapping, generation checks, suppression snapshot и маршрутизация действий.
+- `Services/TargetWindow*` — foreground identity, client geometry, generation и fail-closed invalidation.
+- `Services/WindowCoordinateTransformer` — чистое преобразование profile coordinates в физические screen pixels клиентской области.
+- `Services/TouchEngine` — создание, движение и запрос освобождения контакта.
+- `Services/TouchContactAllocator` — динамические lease ID в пределах backend capacity.
+- `Services/ContactManager` — состояние контактов и формирование общего кадра.
+- `Services/TouchScheduler` — отправка кадров, final Up и fatal-failure callback.
+- `Services/WindowsTouchBackend` — единственный production backend, вызывающий `InitializeTouchInjection`/`InjectTouchInput`.
+- `ViewModels` и `UI/Views` — MVVM UI, редактор поверх target и debug overlay.
+- `GameControlMapper.TouchTestHarness` — отдельный принимающий touch стенд и guided validation report.
 
-The project intentionally uses standard operating-system input mechanisms only. It does not inject DLLs into games, patch game memory, or attempt anti-cheat bypasses. Overlay support is intended for windowed and borderless-windowed modes.
+Удалённые legacy-классы SendInput, `WindowsTouchSimulator`, фиксированные ID, старый `CoordinateScaler` и XInput mapper не компилируются в production assembly и не зарегистрированы DI.
 
-## Profile Flow
+## Путь события
 
-Profiles are stored as readable JSON files in `Profiles`. The editor updates `BindingViewModel` instances, then `MainViewModel` writes the underlying `ControlBinding` list back into the active `MapperProfile` before saving or activating.
+```text
+physical keyboard/button event
+  → KeyboardHookService / MouseHookService
+  → GeneratedInputEvent(target generation)
+  → InputMappingEngine
+  → RuntimeInputPolicy + current InputPermissionSnapshot
+  → profile binding + WindowCoordinateTransformer
+  → TouchEngine.Start/Move/EndTouch
+  → TouchContactAllocator lease + ContactManager
+  → TouchScheduler shared frame
+  → WindowsTouchBackend.SendFrame
+  → InjectTouchInput
+```
 
-## Input Flow
+Suppression публикуется immutable snapshot и разрешается только активному, поддерживаемому binding текущего foreground generation. Macro, Sequence, XInput, unsupported input mode, invalid hotkey и inactive binding физический ввод не подавляют.
 
-`InputMappingEngine` receives keyboard hook events, matches hotkeys through `HotkeyParser`, and delegates actions to `IInputSimulator`. Mouse Look uses `CameraMouseLookService`, which captures relative mouse movement, sends relative deltas, and restores the cursor to the activation origin.
+Одноразовые keyboard actions принимают только initial key press. Auto-repeat отбрасывается до `KeyUp`; уже выполняющееся действие не образует неограниченную очередь. MouseArea и WASD держат по одному lease на binding.
 
-## Coordinate Spaces
+## Target и координаты
 
-`WindowCoordinateTransformer` is an isolated mathematical core that converts `ProfilePoint` values from a declared `ProfileSize` into absolute physical screen pixels inside a `PhysicalClientRect`. It supports `Stretch` compatibility scaling and aspect-preserving `UniformFit` with a centered content viewport. Points outside profile bounds are transformed without clamping and are marked with `IsOutsideProfile`.
+`TargetWindowSessionManager` нормализует HWND к `GA_ROOT`, сохраняет PID, profile size, физический `PhysicalClientRect`, scale mode и monotonic generation. Старт разрешён только foreground root с тем же PID.
 
-`GameWindowGeometryProvider` obtains the target window client size with `GetClientRect` and converts its client origin to an absolute screen origin with `ClientToScreen`. For this PerMonitorV2-aware process, the provider contract is physical Windows screen pixels. WPF device-independent pixels are not accepted by the transformer and must be converted at the WPF boundary in a later integration step.
+`GameWindowGeometryProvider` получает размер через `GetClientRect`, а origin через `ClientToScreen`. Процесс PerMonitorV2-aware, поэтому эти координаты уже считаются физическими pixels и дополнительно на WPF DPI не умножаются. Production использует `Stretch`; математическое ядро также тестирует `UniformFit`. Profile bounds half-open: `0 <= x < width`, `0 <= y < height`.
 
-The existing `CoordinateScaler` remains available only as a legacy whole-primary-screen utility. Production points emitted by `InputMappingEngine` use the target-window transform before reaching `TouchEngine`.
+WinEvent geometry monitor и fallback timer обнаруживают move, resize, minimize, destroy, PID/geometry failure. Поздние callbacks проверяют generation. Ошибка callback перехватывается и не выходит в process-wide unhandled exception.
 
-Profile and viewport bounds are half-open: `0 <= X < Width` and `0 <= Y < Height`. Rasterization uses `MidpointRounding.AwayFromZero`, followed for in-bounds points by the explicit integer viewport bounds `Ceiling(left)` through `Ceiling(right) - 1` (and the equivalent Y bounds). This prevents rounding from producing the exclusive right or bottom coordinate. Out-of-profile points remain diagnostic transform results and are rejected by the production mapping path rather than clamped.
+## Контакты и shutdown
 
-The production mapping path now owns one `TargetWindowSession` through `TargetWindowSessionManager`. A session snapshots HWND, profile size, `Stretch` mode, physical client geometry, and a generation at Start. The scheduler validates that snapshot before each frame. Window movement, resize, hiding, minimization, destruction, or geometry read failure invalidates the session and joins the existing idempotent graceful Stop/Up flow. A new Start is required to capture new geometry.
+Каждый владелец получает `TouchContactLease` с ID, session generation, owner ID и sequence. ID возвращается в pool только после подтверждённого backend `Up`. Неуспешный `Up` переводит ID в quarantine до backend reset.
 
-Per-monitor DPI awareness is declared by `ApplicationDPIAware=true/PM` and `ApplicationHighDpiMode=PerMonitorV2` in the project. Startup logs the current thread DPI awareness context. Client geometry from `GetClientRect` plus `ClientToScreen` is treated as physical pixels without applying WPF `DpiScale`. WPF capture-window DIP conversion remains intentionally outside this integration.
+Остановка едина для F9, focus loss, geometry invalidation, scheduler failure, crash attempt и application shutdown:
 
-## Tanks Blitz Gamepad Flow
+1. атомарно публикуется denied input permission;
+2. новые контакты запрещаются;
+3. camera capture останавливается;
+4. active bindings запрашивают release;
+5. scheduler делает bounded final frame;
+6. результат и причина сохраняются в `MappingSessionDiagnostics`.
 
-`XInputGamepadMapper` сохранён как совместимый legacy-код, но не зарегистрирован production DI и не запускается в beta.
+Параллельные причины присоединяются к одному `_stopTask`. Fatal scheduler failure вызывается вне scheduler lock и не перезапускает worker автоматически.
 
-- Left stick: `W`, `A`, `S`, `D`
-- Right stick: relative mouse look
-- Right trigger / RB: left mouse button
-- Left trigger / LB: right mouse button
-- X/Y/B: `Q`/`E`/`R`
-- D-pad left/up/right: shells `1`/`2`/`3`
+## Камера
 
-This path does not move the cursor to overlay zones.
+Камера использует относительные `dx/dy`, не позицию курсора. `Ctrl` только вооружает режим. После первой значимой дельты создаётся направленная проводка внутри safe client-area ellipse. Пакеты накапливаются до touch frame; sensitivity, inversion, dead zone, acceleration, smoothing и max speed применяются в production `CameraMouseLookService`.
 
-## Foreground focus safety
+При достижении границы выполняется handoff: старый `Up` и новый `Down` входят в один frame, накопленная дельта сохраняется. Это даёт неограниченный логический поворот без движения системного курсора.
 
-Mapping is fail-closed and is permitted only while the canonical `GA_ROOT` target HWND is the foreground root,
-the saved process ID still matches that HWND, the window is valid and not minimized, and mapping is running.
-A Win32 foreground-event hook queues a notification without logging, waiting, locking, or running asynchronous
-shutdown inside the native callback. The managed handler atomically publishes a denied immutable
-`InputPermissionSnapshot` before joining the existing idempotent graceful `StopAsync` path. Focus return never
-restarts mapping.
+Перед camera session считываются position, clip и visibility для ownership record. Реализация не изменяет position/clip и восстанавливает только изменённую ей visibility. Restore idempotent, generation-safe и bounded; `ShowCursor` не крутится в бесконечном цикле.
 
-Low-level suppression callbacks perform one lock-free snapshot read and a key/button lookup. They do not query
-window geometry or foreground state, use the WPF dispatcher, wait for touch sending, or call `StopAsync`. Queued
-hook events carry the target generation captured by the callback and the managed handler validates it again. This
-prevents input queued before focus loss from creating contacts in an ended or later session. Lifecycle hotkeys are
-not suppressed: F8 performs full target validation, F9 joins the current stop, and F10/F11 preserve their existing
-non-touch behavior while ordinary input outside the target remains untouched.
+## Профили и UI
 
-## Continuous camera mouse look
+`ProfileStore` валидирует модель до записи, пишет временный JSON, проверяет его и атомарно заменяет primary. Предыдущая валидная версия сохраняется как `.json.bak`. `camera: null`, `window: null`, `gamepad: null` и `bindings: null` дают структурированную `ProfileValidationException`.
 
-`CameraMouseLookService` owns a generation-scoped cursor session through `IMouseCursorController`. Start saves the
-cursor position and clip rectangle, clips to the target client rectangle when a production target session exists,
-hides the cursor, starts the camera contact, and warps to the physical anchor. Every accepted physical move is
-followed by another warp to the anchor, so desktop edges do not limit rotation. The expected warp position and
-camera generation identify the resulting synthetic move deterministically; it does not alter velocity or touch.
+`AsyncRelayCommand` наблюдает exceptions, восстанавливает CanExecute и сообщает error handler. Инициализация `MainViewModel` имеет safe wrapper и fallback profile. `TouchDebugViewModel` снимает immutable allocator snapshot и coalesces updates через `IUiDispatcher`; после Dispose callbacks игнорируются.
 
-For input vector `d`, movement is ignored when `|d| <= DeadZone`. Sensitivity and inversion are applied per axis.
-Acceleration uses `targetVelocity = sensitiveDelta * (1 + max(0, Acceleration) * |d|)`. Time-based exponential
-smoothing uses `alpha = 1 - exp(-dt / max(Smooth, 0.0001))` and
-`velocity += alpha * (targetVelocity - velocity)`; `Smooth <= 0` means no smoothing. Velocity magnitude is limited
-to `max(0, MaxSpeed)`, and the accumulated touch point is projected onto the circle of radius
-`max(0, DragRadius)` around the anchor. Non-finite input is rejected. Stop is idempotent and restores clip,
-visibility, and the saved position after ending the camera contact. `UseMouseDrag` remains a compatibility field:
-its prior production semantics are ambiguous, so this change does not invent a new branch for it.
+## Логи и diagnostics
 
-## Touch contact allocation
+Production provider принимает Information и выше, но privacy policy отбрасывает шаблоны истории ввода. Diagnostic export применяет фильтр повторно, редактирует user-home path и не копирует profile JSON. Разрешены session lifecycle, target state, backend/profile/hook errors и итог release.
 
-All production contacts acquire a `TouchContactLease` from the singleton `ITouchContactAllocator`. The allocator
-uses `TouchCapabilities.MaxContacts`, never evicts an active lease, and records contact ID, target-session
-generation, owner identity, state, and a monotonic diagnostic sequence. Camera, every joystick binding, every
-MouseArea, and each Tap/Hold/DoubleTap/Swipe execution use this same path; `FixedContacts` is legacy-only.
+## Capability status
 
-`ApplicationCapabilities.Beta` является единым источником статусов возможностей для UI, runtime-ограничений и диагностического экспорта. Production touch path использует `TouchEngine`, allocator lease, `TouchScheduler` и `WindowsTouchBackend`; `WindowsTouchSimulator`, `FixedContacts` и старый числовой API не регистрируются в DI. Debug overlay получает owner ID и состояние из активных allocator leases и не выводит роль по contact ID.
-
-A lease remains stable until its Up outcome is known. `EndTouch` changes it to `ReleasePending`. The scheduler
-returns the ID only after the backend accepts the Up frame. A failed Up is removed from frame retry and moved to
-`Quarantined`, so it cannot be issued again in the same backend/session generation. `Reset` on a new generation
-clears active and quarantined state. Stale or duplicate releases compare lease identity and generation and cannot
-release a newer owner. Capacity exhaustion rejects only the new action and leaves existing contacts untouched.
+`ApplicationCapabilities.Beta` различает `Supported`, `AutomatedOnly`, `Experimental`, `Unsupported` и `Unavailable`. До принятого manual report реализованные touch/DPI/monitor сценарии остаются `AutomatedOnly`; Tanks Blitz — `Experimental`. Capability matrix описывает проверенный статус, а не планируемые функции.

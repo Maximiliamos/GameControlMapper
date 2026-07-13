@@ -1,19 +1,21 @@
 # Changelog
 
-## Unreleased
+## Unreleased — audit remediation
 
-- Камера больше не создаёт стационарный `TouchDown` при нажатии Ctrl: контакт начинается только после физического движения мыши.
-- Круговая короткая проводка заменена длинной направленной проводкой в безопасной эллиптической области вокруг центра целевого окна.
-- Курсор скрывается при включении камеры, его состояние контролируется до выхода из боевого режима и восстанавливается при остановке.
-- Исправлено удаление профиля: команда обновляет доступность, запрашивает подтверждение и удаляет recovery-артефакты.
-- Ctrl переключает боевой режим; ЛКМ «Огонь» перехватывается только при активной камере и освобождается при выходе из режима.
-- Камера накапливает Raw Input между сенсорными кадрами, использует безопасный расширенный радиус и продолжает движение сразу после смены контакта.
-- Переработан главный интерфейс: повышены контраст и размеры текста, упрощена иерархия команд, добавлен индикатор режима мыши, журнал сделан сворачиваемым.
-- Добавлено поэтапное техническое задание и критерии приёмки камеры.
+- production-логи и диагностический ZIP очищены от истории ввода, binding names, joystick coordinates, camera deltas и scheduler frames;
+- неподдерживаемые профили и действия больше не попадают в suppression snapshot;
+- keyboard auto-repeat не создаёт очередь повторных Tap/Hold/DoubleTap/Swipe;
+- fatal scheduler failure переводит mapping в fail-closed stop с bounded final Up;
+- расширена null-safe валидация профилей, hotkeys, camera/window/gamepad и Windows filenames;
+- camera cursor ownership восстанавливает исходную видимость idempotent и generation-safe;
+- async UI failures наблюдаются, а TouchDebug обновляется через dispatcher с coalescing;
+- harness сохраняет реальные monitor bounds, DPI и evidence; незавершённый report получает Failed;
+- release manifest получает фактические TRX counters, версии, commit, RID и SHA-256 бинарников/архивов;
+- удалены production legacy пути SendInput, старый touch simulator, фиксированные contacts, CoordinateScaler и XInput mapper;
+- Blitz XVM/Olenemer удалён из публичного beta UI и production assembly;
+- слабые source-text тесты заменены поведенческими и script integration checks;
+- Windows CI проверяет Release build, TRX, self-contained ZIP, manifest negative cases и static safety.
 
-## 1.0.0-rc.1
+## 1.0.0-beta.2
 
-- Windows 10/11 x64 keyboard and mouse to Windows Touch Injection.
-- Target-window coordinates, Tap, DoubleTap, Hold, horizontal Swipe, WASD joystick, camera and MouseArea.
-- Focus-safe shutdown, profiles with backup/validation, diagnostics and TouchTestHarness.
-- XInput, Macro/Sequence, Android/ADB, RawInput, Interception, ViGEm, pinch and rotation are not supported.
+Планируемая публичная beta после независимого review и ограниченной ручной проверки. Это не финальный релиз и не заявление о совместимости с конкретной игрой.
