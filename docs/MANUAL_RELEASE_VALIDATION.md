@@ -1,106 +1,50 @@
-# Manual release validation
+# Guided manual validation публичной beta
 
-## Test package and execution order
+Проверка должна выполняться на неизменённых self-contained ZIP, созданных одним full commit. Report связывает product version, application/harness commit, SHA-256 обоих архивов и реальные monitor/DPI metadata.
 
-Release files: `GameControlMapper-<version>-win-x64.zip` and `GameControlMapper-TouchTestHarness-<version>-win-x64.zip`.
+## Подготовка
 
-1. Extract both ZIP files into separate directories.
-2. Start `GameControlMapper.TouchTestHarness.exe`; in the main application select its window as the target.
-3. Start `GameControlMapper.exe`, verify the Beta version, then follow the scenarios below without using unsupported features.
-4. In TouchTestHarness save/export the stand report after the scenarios.
-5. In Game Control Mapper choose **Экспорт диагностики** and keep the resulting diagnostic ZIP with this checklist.
-6. Stop mapping before closing both applications; close the main application, then TouchTestHarness.
+1. Распакуйте application и TouchTestHarness ZIP в разные каталоги.
+2. Запустите harness и mapper; в mapper выберите окно harness как target.
+3. Убедитесь, что в UI написано `Beta`, а capability matrix не объявляет непроверенные сценарии `Supported`.
+4. Не используйте XInput, Macro/Sequence, ADB, pinch или rotation.
+5. Запустите guided validation. Нельзя вручную поставить PASS для machine-evidence сценария без принятых counters/timestamps.
 
-Environment: Windows version __________  DPI __________  Monitor count __________
+Harness записывает для каждого реального монитора безопасный ID, X/Y/Width/Height, DPI X/Y, scale, primary, harness monitor и target monitor. `NotAvailable` допускается только если соответствующего hardware действительно нет. Отрицательные координаты и mixed DPI не подменяются значениями по умолчанию.
 
-Commit hash __________  Game/emulator under test __________  Tester/date __________
+## Обязательные сценарии
 
-| Area | PASS | FAIL | Notes |
-|---|---|---|---|
-| Startup and shutdown | ☐ | ☐ | |
-| Tap / Hold / DoubleTap / Swipe | ☐ | ☐ | |
-| WASD / Camera / MouseArea | ☐ | ☐ | |
-| Focus and geometry safety | ☐ | ☐ | |
-| Multitouch capacity | ☐ | ☐ | |
-| Diagnostics and reports | ☐ | ☐ | |
+- Tap: один Down и один Up.
+- Hold: Down, достаточная длительность/Move, один Up.
+- DoubleTap: два полных lifecycle.
+- Swipe: Down, упорядоченные Move, Up.
+- WASD и MouseArea: независимые ID, одновременно с другими действиями.
+- Camera: минимум две минуты движения; handoff без orphan Up и пустого кадра.
+- Multitouch: измеренная одновременность и capacity; одиннадцатый контакт безопасно отклоняется.
+- F9, Alt+Tab, move/resize/minimize/close target: final Up, zero active contacts, отсутствие поздних Move.
+- Повторный Start: новая generation без событий предыдущей.
+- Profiles: create/save/backup/corrupt/import/write failure.
+- Diagnostics: session ID/stop reason сохранены, input history/profile JSON/user path отсутствуют.
+- DPI 100/125/150%, несколько мониторов, negative origin и mixed DPI — если hardware присутствует.
 
-Before testing, verify the Beta label and capability matrix in the UI. Do not treat XInput, Macro/Sequence, Android, pinch or rotation as supported. Diagnostic export must contain `Capability matrix` and `xinput: UnsupportedInBeta`.
+## Критерий отчёта
 
-Application version: __________  Commit hash: __________  Tester/date: __________
+Report получает `Failed`, если есть NotStarted/InProgress/Failed, protocol errors, active contacts at end, несогласованный verdict, неизвестные/дублированные/переименованные scenario IDs или отсутствующий machine evidence. При честно отсутствующем hardware допустим `PassedWithUnverifiedEnvironments`, но это не повышает 해당 capability до `Supported`.
 
-Run only in a human-controlled safe environment with no unsaved data. Record relevant journal lines and mark each
-scenario **PASS** or **FAIL**.
+Проверьте report скриптом:
 
-## Focus safety
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/validate-manual-release.ps1 `
+  -ReportPath <report.json> `
+  -ApplicationArchive <GameControlMapper-beta.zip> `
+  -HarnessArchive <TouchTestHarness-beta.zip> `
+  -ExpectedVersion <version> `
+  -ExpectedCommit <full-commit> `
+  -CandidateManifest <manifest.json>
+```
 
-Preparation: select a disposable target window. Start with F8, then separately hold W, camera Ctrl, and a MouseArea
-button while using Alt+Tab; also overlap F9 with Alt+Tab. Expected: exactly one Up per sent contact, suppression is
-off in the new application, late releases pass through, returning focus does not restart mapping, and no Win32 87
-appears. Journal: start, foreground invalidation, one stop/release result. Result: ______  Commit: ______
+После ручной проверки production binaries менять нельзя. Финальный `1.0.0` должен быть отдельно пересобран из того же clean commit; переименование beta ZIP запрещено.
 
-## Camera recenter and restoration
+## Ограничение текущей задачи
 
-Hold camera movement continuously in one direction for at least two minutes and reach every physical desktop edge.
-Stop separately by CtrlUp, F9, Alt+Tab, target minimization, and application close. Expected: rotation continues at
-edges; cursor position, visibility, and previous clip-region are restored once. Journal: camera start/stop and no
-cursor-controller failure. Result: ______  Commit: ______
-
-## Monitors, coordinates, and DPI
-
-Exercise the target on the primary monitor, a left-hand monitor with negative origin, DPI 100%, DPI 125%, and a
-mixed-DPI move between monitors. Move the window during an active contact. Expected: points remain inside the client
-area; movement invalidates and releases rather than continuing with stale geometry. Journal: geometry generation
-invalidation and successful final Up. Result: ______  Commit: ______
-
-## Multitouch allocator
-
-Activate joystick, camera, MouseArea, and ordinary zones concurrently. Reach ten contacts, attempt an eleventh,
-stop, then start again. Expected: IDs 0..9 are unique and stable; the eleventh is rejected without eviction or UI
-failure; all leases release and a new session works. Journal: capacity warning only for rejected owner and release
-result. Result: ______  Commit: ______
-
-## Profile persistence and recovery
-
-Save an existing profile twice and verify `.json.bak`; corrupt primary JSON and manually restore/load backup; import
-corrupt JSON; simulate an unwritable Profiles directory. Expected: valid primary is never partially replaced, backup
-contains the previous version, corrupt files are skipped but preserved, import does not alter the current profile,
-and write failure leaves the last working file intact. Journal: structured validation code/path or atomic-save error,
-without UI stack trace. Result: ______  Commit: ______
-
-## TouchTestHarness procedure
-
-Start `GameControlMapper.TouchTestHarness`, record its client size, select its window as target, create a matching
-profile, and start mapping with F8. The harness must only receive and visualize input; it never injects input itself.
-
-| Scenario | Expected harness sequence | PASS/FAIL | Commit |
-|---|---|---|---|
-| Tap | one Down, then one Up; no orphan ID | | |
-| Hold | one Down, optional Moves, one Up on completion | | |
-| DoubleTap | Down/Up followed by a second Down/Up | | |
-| Swipe | Down, ordered Moves, one Up | | |
-| WASD | one stable ID: Down, Moves as direction changes, Up on release | | |
-| Camera for at least two minutes | one stable ID, continuous Moves despite desktop edges, one Up | | |
-| Left and right MouseArea | independent IDs, each Down then one Up | | |
-| Several simultaneous actions | independent markers and IDs; balanced Down/Up | | |
-| Ten contacts | active count and maximum reach 10; all IDs independent | | |
-| Eleventh action | mapper rejects it; harness remains at 10 and does not crash | | |
-| F9 while held | every active ID receives exactly one Up | | |
-| Alt+Tab while held | every sent contact receives one Up; no later Move | | |
-| Move or resize target while held | session stops and active ID receives one Up | | |
-| Minimize target while held | session stops and active ID receives one Up | | |
-| Start after Stop | new balanced session; no event from previous generation | | |
-
-Finally press **Проверить активные контакты**. PASS requires zero active IDs, balanced lifecycle for every sent
-contact, no `PROTOCOL ERROR`, no Win32 error 87, and no automatic restart after focus loss.
-
-## Production diagnostics
-
-Run a normal mapping session and stop it by F9, focus loss, and geometry invalidation. Verify that
-`%LocalAppData%\GameControlMapper\Logs` contains UTF-8 structured entries with a short session ID, the correct stop
-reason, active-contact count, and final release result, without per-frame/mouse-move spam. Trigger only a controlled
-non-destructive test exception in a dedicated build and verify cursor restoration plus `crash-report.txt`.
-
-Use **Экспорт диагностики** and inspect the ZIP. It must contain metadata, README, exception summary, and recent
-logs, but no JSON profile content, pressed keys, process/window lists, document contents, credentials, or unredacted
-user-home paths. PASS requires at most three rotated archives, meaningful Win32 operation/code/message entries,
-successful application shutdown, and an export that does not modify the source logs. Result: ______ Commit: ______
+Автоматический запуск harness не заменяет физическую touch-проверку человеком. Если Tap/Hold/WASD/Camera/MouseArea/F9/Alt+Tab не были реально выполнены, в отчёте следует явно писать `Not performed`, а remediation нельзя объявлять полностью принятой.

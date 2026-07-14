@@ -1,8 +1,29 @@
-# Troubleshooting
+# Устранение неполадок
 
-- Touch does not work: confirm Windows 10/11 x64, target-window focus and review the application log for the Win32 error code. Do not repeatedly enable mapping after initialization failure.
-- Focus loss: mapping stops intentionally and does not restart automatically. Return focus and start it manually.
-- Cursor appears clipped or hidden: stop mapping with F9 and close the application normally. If another application retained capture, use Ctrl+Alt+Delete and return to the desktop.
-- Profile recovery: keep the primary JSON untouched and restore the adjacent `.bak` through the documented backup workflow.
-- Diagnostic ZIP: use **Экспорт диагностики** and attach it without adding profiles or other personal files.
-- Anti-cheat/security software may block injection or flag the process. The project does not bypass protection and provides no compatibility guarantee.
+## Touch не появляется
+
+Убедитесь, что используется Windows 10/11 x64, target выбран и находится на foreground, а mapper имеет совместимый с игрой уровень прав. Проверьте журнал на `InitializeTouchInjection`/`InjectTouchInput` и Win32 code. После backend/scheduler failure не пытайтесь продолжать старую сессию — выберите target и запустите заново.
+
+## Mapping остановился после Alt+Tab
+
+Это fail-closed поведение. Focus return не выполняет автоматический restart. Верните focus целевому окну и нажмите `F8`.
+
+## Курсор остался скрытым
+
+Сначала нажмите `F9` и закройте приложение штатно. Camera restore изменяет только visibility, которой владела текущая camera generation. При внешнем конфликте capture используйте безопасный экран Windows (`Ctrl+Alt+Delete`) и завершите mapper.
+
+## Камера дёргается на длинном повороте
+
+Проверьте target client size и настройки sensitivity/smoothing/max speed. Поворот состоит из touch-проводок с handoff внутри safe ellipse; визуальный стык зависит от игры. Запишите двухминутный сценарий в TouchTestHarness и не отмечайте PASS при orphan Up, пустом handoff frame или видимом периодическом рывке.
+
+## Профиль повреждён
+
+Не перезаписывайте primary вручную. Рядом должен быть предыдущий `.json.bak`. Невалидный/null JSON отклоняется `ProfileValidationException`; восстановите копию через контролируемый workflow.
+
+## Нужна диагностика
+
+Используйте кнопку экспорта, просмотрите ZIP и передайте его вместе с version и шагами воспроизведения. Не добавляйте profile JSON или личные файлы. История ввода должна отсутствовать; если она обнаружена, не отправляйте архив и заведите privacy defect.
+
+## Защитное ПО блокирует mapper
+
+Приложение использует глобальные hooks и Windows Touch Injection, поэтому политика или античит может его блокировать. Обхода нет, совместимость не гарантируется.

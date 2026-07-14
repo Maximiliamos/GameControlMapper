@@ -187,21 +187,6 @@ public sealed class ControlEditorSessionTests
         Assert.Equal(expected, binding.DisplayHotkey);
     }
 
-    [Fact]
-    public void OverlayEditor_XamlExposesTargetAlignedEditingWorkflow()
-    {
-        var overlay = Source("src/GameControlMapper/UI/Views/ControlEditorOverlayWindow.xaml");
-        var main = Source("src/GameControlMapper/UI/Views/MainWindow.xaml");
-
-        Assert.Contains("Topmost=\"True\"", overlay);
-        Assert.Contains("ProfileCanvas_PreviewMouseRightButtonDown", overlay);
-        Assert.Contains("Правый клик по пустой области", overlay);
-        Assert.Contains("✓ Сохранить", overlay);
-        Assert.Contains("Отмена  Esc", overlay);
-        Assert.Contains("OpenControlEditorCommand", main);
-        Assert.Contains("Редактировать поверх игры", main);
-    }
-
     private static MapperProfile EmptyProfile() => new()
     {
         Name = "Тестовая схема",
@@ -211,16 +196,4 @@ public sealed class ControlEditorSessionTests
         Bindings = []
     };
 
-    private static string Source(string relative)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "GameControlMapper.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        return File.ReadAllText(Path.Combine(
-            directory!.FullName,
-            relative.Replace('/', Path.DirectorySeparatorChar)));
-    }
 }

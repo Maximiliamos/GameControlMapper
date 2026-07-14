@@ -53,10 +53,6 @@
                     <Button Content="Импорт" Style="{StaticResource CompactButton}" Command="{Binding ImportProfileCommand}" />
                     <Button Content="Экспорт" Style="{StaticResource CompactButton}" Command="{Binding ExportProfileCommand}" />
                     <Button Content="Диагностика" Style="{StaticResource CompactButton}" Command="{Binding ExportDiagnosticsCommand}" />
-                    <Button Content="XVM"
-                            Style="{StaticResource CompactButton}"
-                            Command="{Binding OpenBlitzXvmCommand}"
-                            ToolTip="Запустить Blitz XVM или показать его уже открытое окно. Программа статистики работает отдельно от сенсорного ввода." />
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -319,25 +315,6 @@
                         </Border>
                     </Expander>
 
-                    <Expander Header="Статистика Blitz XVM" IsExpanded="False" Margin="0,0,0,12">
-                        <Border Background="#202938" CornerRadius="6" Padding="10">
-                            <StackPanel>
-                                <TextBlock Text="{Binding OlenemerStatus}" Foreground="#93C5FD" />
-                                <TextBlock Text="{Binding OlenemerAccountSummary}" TextWrapping="Wrap" Margin="0,5,0,0" />
-                                <TextBlock Text="{Binding OlenemerLastBattleSummary}" TextWrapping="Wrap" Margin="0,5,0,8" />
-                                <UniformGrid Columns="2">
-                                    <Button Content="Обновить" Command="{Binding RefreshOlenemerStatsCommand}" />
-                                    <Button Content="Открыть XVM" Command="{Binding OpenBlitzXvmCommand}" />
-                                </UniformGrid>
-                                <TextBlock Text="Читаются только агрегаты account_stats.json и итог battle_result.json. DLL и список игроков не загружаются."
-                                           Foreground="{StaticResource MutedTextBrush}"
-                                           FontSize="11"
-                                           TextWrapping="Wrap"
-                                           Margin="0,6,0,0" />
-                            </StackPanel>
-                        </Border>
-                    </Expander>
-
                     <Expander Header="Камера и чувствительность" IsExpanded="True" Margin="0,0,0,12">
                         <Border Background="#202938" CornerRadius="6" Padding="10">
                             <StackPanel>
@@ -459,15 +436,32 @@
                 BorderBrush="#273244"
                 BorderThickness="0,1,0,0"
                 Padding="12,4">
-            <Expander Header="Журнал работы и диагностика" IsExpanded="False">
-                <DockPanel Margin="0,6,0,4" Height="132">
+            <StackPanel>
+                <TextBlock Text="{Binding UiErrorMessage}"
+                           Foreground="#FCA5A5"
+                           TextWrapping="Wrap"
+                           Margin="0,2,0,4">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding UiErrorMessage}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Expander Header="Журнал работы и диагностика" IsExpanded="False">
+                    <DockPanel Margin="0,6,0,4" Height="132">
                     <Button DockPanel.Dock="Top" HorizontalAlignment="Right"
                             Style="{StaticResource CompactButton}"
                             Content="Копировать журнал"
                             Command="{Binding CopyLogsCommand}" />
                     <ListBox ItemsSource="{Binding Logs}" FontFamily="Consolas" FontSize="12" />
-                </DockPanel>
-            </Expander>
+                    </DockPanel>
+                </Expander>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

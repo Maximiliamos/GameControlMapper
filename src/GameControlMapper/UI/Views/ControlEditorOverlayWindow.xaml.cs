@@ -373,6 +373,15 @@ public partial class ControlEditorOverlayWindow : Window
                 Close();
             }
         }
+        catch (Exception ex)
+        {
+            _mainViewModel.ReportUiFailure("Save control editor", ex);
+            System.Windows.MessageBox.Show(
+                "Не удалось сохранить изменения редактора. Окно остаётся открытым, повторите попытку или отмените изменения.",
+                "Редактор управления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
         finally
         {
             _isSaving = false;

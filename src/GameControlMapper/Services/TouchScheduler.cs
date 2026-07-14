@@ -6,6 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
 
+public sealed record SchedulerFatalFailureEventArgs(Exception Exception);
+public enum TouchSchedulerState { Created, Running, Paused, Faulted, Stopping, Disposed }
+
 public class TouchScheduler : IDisposable
 {
     private readonly ILogger<TouchScheduler> _logger;
@@ -20,14 +23,20 @@ public class TouchScheduler : IDisposable
     
     public event EventHandler? FrameSent;
     public event EventHandler? TargetSessionInvalidated;
+    public event EventHandler<SchedulerFatalFailureEventArgs>? FatalSchedulerFailure;
     
     private int _frameCount;
     private DateTime _lastFpsUpdate;
     private double _currentFps;
     private Task? _worker;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private readonly object _stateGate = new();
     private volatile bool _paused;
     private bool _disposed;
+    private int _fatalFailureRaised;
+    private TouchSchedulerState _state = TouchSchedulerState.Created;
+    public TouchSchedulerState State { get { lock (_stateGate) return _state; } }
+    internal bool HasFatalFailure=>State == TouchSchedulerState.Faulted;
     public double CurrentFps
     {
         get => _currentFps;
@@ -62,8 +71,18 @@ public class TouchScheduler : IDisposable
     public void Start()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(TouchScheduler));
-        _paused = false;
-        if (_cts != null) return;
+        lock (_stateGate)
+        {
+            if (_state == TouchSchedulerState.Faulted)
+                throw new InvalidOperationException("Touch scheduler faulted; restart the application before starting mapping again.");
+            _paused = false;
+            if (_cts != null)
+            {
+                _state = TouchSchedulerState.Running;
+                return;
+            }
+            _state = TouchSchedulerState.Running;
+        }
 
         _cts = new CancellationTokenSource();
         _lastFpsUpdate = DateTime.Now;
@@ -80,6 +99,11 @@ public class TouchScheduler : IDisposable
     {
         if (_cts == null) return;
 
+        lock (_stateGate)
+        {
+            if (_state != TouchSchedulerState.Faulted) _state = TouchSchedulerState.Stopping;
+        }
+
         _cts.Cancel();
         if (_worker is not null)
         {
@@ -89,14 +113,32 @@ public class TouchScheduler : IDisposable
         _cts.Dispose();
         _cts = null;
         _worker = null;
+        lock (_stateGate)
+        {
+            if (_state != TouchSchedulerState.Faulted) _state = TouchSchedulerState.Created;
+        }
         _logger.LogInformation("TouchScheduler stopped");
     }
 
-    public void Resume() => _paused = false;
+    public bool Resume()
+    {
+        lock (_stateGate)
+        {
+            if (_state is TouchSchedulerState.Faulted or TouchSchedulerState.Stopping or TouchSchedulerState.Disposed)
+                return false;
+            _paused = false;
+            _state = TouchSchedulerState.Running;
+            return true;
+        }
+    }
 
     public async Task<TouchShutdownResult> PauseAndFlushAsync(CancellationToken cancellationToken = default)
     {
         _paused = true;
+        lock (_stateGate)
+        {
+            if (_state != TouchSchedulerState.Faulted) _state = TouchSchedulerState.Paused;
+        }
         await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -140,7 +182,21 @@ public class TouchScheduler : IDisposable
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex) { _logger.LogError(ex, "Touch scheduler stopped unexpectedly"); }
+        catch (Exception ex) { SignalFatalFailure(ex); }
+    }
+
+    private void SignalFatalFailure(Exception exception)
+    {
+        _paused=true;
+        lock (_stateGate) _state = TouchSchedulerState.Faulted;
+        if(Interlocked.Exchange(ref _fatalFailureRaised,1)!=0)
+        {
+            _logger.LogError(exception, "Touch scheduler received another backend failure after entering the faulted state.");
+            return;
+        }
+        _logger.LogCritical(exception,"Touch scheduler stopped unexpectedly; mapping will stop fail-closed");
+        try{FatalSchedulerFailure?.Invoke(this,new SchedulerFatalFailureEventArgs(exception));}
+        catch(Exception callbackError){_logger.LogError(callbackError,"Fatal scheduler callback failed");}
     }
 
     private Task SendFrameAsync(CancellationToken ct)
@@ -196,6 +252,7 @@ public class TouchScheduler : IDisposable
         {
             var failedUps=contacts.Where(c=>c.State==TouchState.Up).Select(c=>c.ContactId).ToArray();
             if(failedUps.Length>0){_allocator?.QuarantineFailedUp(failedUps);_manager.DiscardContacts(failedUps);_logger.LogError("Touch Up failed; contact IDs quarantined: {Ids}",string.Join(", ",failedUps));}
+            SignalFatalFailure(new InvalidOperationException("Touch backend rejected a scheduled frame."));
             return;
         }
         _manager.AdvanceSentContacts(contacts.Where(c => c.State is TouchState.Down or TouchState.Update));
@@ -215,7 +272,7 @@ public class TouchScheduler : IDisposable
     {
         if (!_context.IsDebugMode) return;
         var contacts = frame.GetContacts();
-        _logger.LogInformation("FRAME {FrameId} | Timestamp: {Timestamp}", frame.FrameId, DateTime.Now.ToString("HH:mm:ss.fff"));
+        _logger.LogTrace("Scheduler debug frame created");
         foreach (var contact in contacts)
         {
             string contactType = contact.ContactId switch
@@ -226,7 +283,7 @@ public class TouchScheduler : IDisposable
                 3 => "Aim",
                 _ => "Other"
             };
-            _logger.LogInformation(
+            _logger.LogTrace(
                 "  Contact {ContactId} | Type: {Type} | State: {State} | X: {X:F0} | Y: {Y:F0}",
                 contact.ContactId,
                 contactType,
@@ -234,7 +291,7 @@ public class TouchScheduler : IDisposable
                 contact.X,
                 contact.Y);
         }
-        _logger.LogInformation("  InjectTouchInput({Count})", contacts.Length);
+        _logger.LogTrace("Touch backend debug batch size: {Count}", contacts.Length);
     }
 
     public void Dispose()
@@ -243,5 +300,6 @@ public class TouchScheduler : IDisposable
         Stop();
         _sendGate.Dispose();
         _disposed = true;
+        lock (_stateGate) _state = TouchSchedulerState.Disposed;
     }
 }

@@ -1,18 +1,42 @@
 using GameControlMapper.Models;
 using Xunit;
+
 namespace GameControlMapper.Tests;
+
 public sealed class TanksBlitzProfileUiTests
 {
- [Fact]public void DefaultProfile_MatchesImportedTanksBlitzLayout(){var p=MapperProfile.CreateDefault();Assert.Equal("Tanks Blitz",p.Game);Assert.Equal("tanksblitz",p.Window.ProcessName);Assert.Equal("Tanks Blitz",p.Window.WindowTitle);Assert.Equal(1920,p.ResolutionWidth);Assert.Equal(1080,p.ResolutionHeight);Assert.Equal(12,p.Bindings.Count);Assert.Contains(p.Bindings,x=>x.Name=="Движение"&&x.Hotkey=="WASD"&&x.Kind==BindingKind.Joystick);Assert.Contains(p.Bindings,x=>x.Name=="Камера"&&x.Hotkey=="LeftCtrl"&&x.Kind==BindingKind.Aim);Assert.Contains(p.Bindings,x=>x.Name=="Огонь"&&x.Hotkey=="MouseLeft");Assert.Contains(p.Bindings,x=>x.Name=="Прицел"&&x.Hotkey=="MouseRight");Assert.All(p.Bindings,x=>Assert.True(x.CenterX>=0&&x.CenterX<1920&&x.CenterY>=0&&x.CenterY<1080));}
- [Fact]public void DefaultCamera_IsDirectAndResponsive(){var camera=MapperProfile.CreateDefault().Camera;Assert.Equal(0.5,camera.SensitivityX);Assert.Equal(0.5,camera.SensitivityY);Assert.Equal(0,camera.DeadZone);Assert.Equal(0,camera.Smooth);Assert.Equal(64,camera.MaxSpeed);Assert.Equal(220,camera.DragRadius);}
- [Fact]public void DefaultProfile_UsesObservedNativeBattleHudCenters(){var p=MapperProfile.CreateDefault();AssertCenter(p,"WASD",137,959);AssertCenter(p,"MouseLeft",1740,938);AssertCenter(p,"MouseRight",1587,1034);AssertCenter(p,"1",1655,1015);AssertCenter(p,"2",1717,1015);AssertCenter(p,"3",1779,1015);AssertCenter(p,"Q",1886,770);AssertCenter(p,"E",1886,836);AssertCenter(p,"R",1886,901);AssertCenter(p,"Escape",1717,32);AssertCenter(p,"Space",1306,1029);}
- [Fact]public void MainMenu_ContainsSetupHelpAndReadableRussianLabels(){var xaml=Source("src/GameControlMapper/UI/Views/MainWindow.xaml");Assert.Contains("Как настроить управление",xaml);Assert.Contains("Сохранить",xaml);Assert.Contains("Запустить",xaml);Assert.Contains("Остановить",xaml);Assert.Contains("Ctrl включает обзор камерой; повторный Ctrl возвращает мышь",xaml);Assert.Contains("F9 всегда останавливает управление",xaml);}
- [Fact]public void MainMenu_RequiresAndExposesTargetWindowSelection(){var xaml=Source("src/GameControlMapper/UI/Views/MainWindow.xaml");var vm=Source("src/GameControlMapper/ViewModels/MainViewModel.cs");Assert.Contains("Целевое окно",xaml);Assert.Contains("RefreshWindowsCommand",xaml);Assert.Contains("WindowHandle==0",vm);Assert.Contains("Сначала выберите окно игры",vm);}
- [Fact]public void TargetWindowList_PrefersMumuOrTanksBlitz(){var vm=Source("src/GameControlMapper/ViewModels/MainViewModel.cs");Assert.Contains("Contains(\"MuMu\"",vm);Assert.Contains("Contains(\"Nemu\"",vm);Assert.Contains("Contains(\"Tanks Blitz\"",vm);}
- [Fact]public void MainMenu_DarkTemplatesKeepDisabledControlsReadable(){var app=Source("src/GameControlMapper/App.xaml");var main=Source("src/GameControlMapper/UI/Views/MainWindow.xaml");Assert.Contains("DisabledBackgroundBrush",app);Assert.Contains("DisabledTextBrush",app);Assert.Contains("<ControlTemplate TargetType=\"Button\">",app);Assert.Contains("<ControlTemplate TargetType=\"ComboBox\">",app);Assert.Contains("VerticalScrollBarTemplate",app);Assert.DoesNotContain("Foreground=\"#111827\"",main);}
- [Fact]public void Startup_PrefersPrimaryTanksProfileAndSavedProcess(){var vm=Source("src/GameControlMapper/ViewModels/MainViewModel.cs");Assert.Contains("Основной — Tanks Blitz",vm);Assert.Contains("savedProcess",vm);Assert.Contains("x.ProcessName.Equals(savedProcess",vm);}
- [Fact]public void SelectingNativeTanksWindow_AssociatesProfileWithGame(){var vm=Source("src/GameControlMapper/ViewModels/MainViewModel.cs");Assert.Contains("value.ProcessName.Equals(\"tanksblitz\"",vm);Assert.Contains("CurrentProfile.Game=\"Tanks Blitz\"",vm);}
- private static void AssertCenter(MapperProfile profile,string hotkey,double x,double y){var binding=Assert.Single(profile.Bindings,b=>b.Hotkey==hotkey);Assert.Equal(x,binding.CenterX);Assert.Equal(y,binding.CenterY);}
- [Fact]public void StartButton_ActivatesTargetBeforeStartingMapping(){var vm=Source("src/GameControlMapper/ViewModels/MainViewModel.cs");Assert.Contains("ActivateWindow(new IntPtr(CurrentProfile.Window.WindowHandle))",vm);Assert.True(vm.IndexOf("ActivateWindow",StringComparison.Ordinal)<vm.IndexOf("_mappingEngine.Start()",StringComparison.Ordinal));}
- private static string Source(string relative){var d=new DirectoryInfo(AppContext.BaseDirectory);while(d is not null&&!File.Exists(Path.Combine(d.FullName,"GameControlMapper.sln")))d=d.Parent;return File.ReadAllText(Path.Combine(d!.FullName,relative.Replace('/',Path.DirectorySeparatorChar)));}
+    [Fact]
+    public void DefaultProfile_MatchesDocumentedTanksBlitzLayout()
+    {
+        var profile=MapperProfile.CreateDefault();
+        Assert.Equal("Tanks Blitz",profile.Game);Assert.Equal("tanksblitz",profile.Window.ProcessName);Assert.Equal("Tanks Blitz",profile.Window.WindowTitle);
+        Assert.Equal(1920,profile.ResolutionWidth);Assert.Equal(1080,profile.ResolutionHeight);Assert.Equal(12,profile.Bindings.Count);
+        Assert.Contains(profile.Bindings,binding=>binding.Hotkey=="WASD"&&binding.Kind==BindingKind.Joystick);
+        Assert.Contains(profile.Bindings,binding=>binding.Hotkey=="LeftCtrl"&&binding.Kind==BindingKind.Aim);
+        Assert.Contains(profile.Bindings,binding=>binding.Hotkey=="MouseLeft"&&binding.Kind==BindingKind.MouseArea);
+        Assert.Contains(profile.Bindings,binding=>binding.Hotkey=="MouseRight"&&binding.Kind==BindingKind.MouseArea);
+        Assert.All(profile.Bindings,binding=>Assert.True(binding.CenterX>=0&&binding.CenterX<1920&&binding.CenterY>=0&&binding.CenterY<1080));
+    }
+
+    [Fact]
+    public void DefaultCamera_IsDirectAndResponsive()
+    {
+        var camera=MapperProfile.CreateDefault().Camera;
+        Assert.Equal(0.5,camera.SensitivityX);Assert.Equal(0.5,camera.SensitivityY);Assert.Equal(0,camera.DeadZone);Assert.Equal(0,camera.Smooth);Assert.Equal(64,camera.MaxSpeed);Assert.Equal(220,camera.DragRadius);
+    }
+
+    [Fact]
+    public void DefaultProfile_UsesObservedNativeBattleHudCenters()
+    {
+        var profile=MapperProfile.CreateDefault();
+        AssertCenter(profile,"WASD",137,959);AssertCenter(profile,"MouseLeft",1740,938);AssertCenter(profile,"MouseRight",1587,1034);
+        AssertCenter(profile,"1",1655,1015);AssertCenter(profile,"2",1717,1015);AssertCenter(profile,"3",1779,1015);
+        AssertCenter(profile,"Q",1886,770);AssertCenter(profile,"E",1886,836);AssertCenter(profile,"R",1886,901);
+        AssertCenter(profile,"Escape",1717,32);AssertCenter(profile,"Space",1306,1029);
+    }
+
+    private static void AssertCenter(MapperProfile profile,string hotkey,double x,double y)
+    {
+        var binding=Assert.Single(profile.Bindings,item=>item.Hotkey==hotkey);Assert.Equal(x,binding.CenterX);Assert.Equal(y,binding.CenterY);
+    }
 }

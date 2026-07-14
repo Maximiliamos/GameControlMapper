@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.IO;
+using GameControlMapper.Win32;
 using Microsoft.Extensions.Logging;
 
 namespace GameControlMapper.Services;
@@ -19,13 +20,44 @@ public sealed class NativeErrorRateLimiter
     public NativeErrorRateLimiter(TimeSpan? window=null)=>_window=window??TimeSpan.FromSeconds(10);
     public bool ShouldLog(string key,DateTimeOffset now,out int suppressed){lock(_gate){if(!_state.TryGetValue(key,out var s)||now-s.Last>=_window){suppressed=s.Count>0?s.Count-1:0;_state[key]=(1,now);return true;}_state[key]=(s.Count+1,s.Last);suppressed=0;return false;}}
 }
+public sealed record CrashRecoveryResult(bool Started,bool CrashReportWritten,bool GracefulStopCompleted,bool CursorRestoreAttempted,bool HandlerFailed)
+{
+    public static readonly CrashRecoveryResult Reentrant = new(false,false,false,false,false);
+    public bool CanMarkDispatcherHandled => Started && GracefulStopCompleted && CursorRestoreAttempted && !HandlerFailed;
+}
 public sealed class CrashHandlingService
 {
-    private readonly ILogger<CrashHandlingService> _logger;private readonly Func<Task> _stop;private readonly Action _restore;private readonly FileLogSink? _files;private int _handling;private readonly List<string> _exceptions=[];
-    public CrashHandlingService(ILogger<CrashHandlingService> logger,Func<Task> stop,Action restore,FileLogSink? files=null){_logger=logger;_stop=stop;_restore=restore;_files=files;}
+    private readonly ILogger<CrashHandlingService> _logger;private readonly Func<Task> _stop;private readonly Action _restore;private readonly FileLogSink? _files;private readonly TimeSpan _timeout;private int _handling;private readonly List<string> _exceptions=[];
+    public CrashHandlingService(ILogger<CrashHandlingService> logger,Func<Task> stop,Action restore,FileLogSink? files=null,TimeSpan? timeout=null){_logger=logger;_stop=stop;_restore=restore;_files=files;_timeout=timeout??TimeSpan.FromSeconds(3);}
     public IReadOnlyList<string> Exceptions{get{lock(_exceptions)return _exceptions.ToArray();}}
-    public async Task HandleAsync(string source,Exception exception)
-    {if(Interlocked.Exchange(ref _handling,1)!=0)return;try{lock(_exceptions)_exceptions.Add($"{source}: {exception.GetType().Name}: {FileLogSink.Redact(exception.Message)}");_files?.WriteCrashReport(source,exception);_logger.LogCritical(exception,"Unhandled exception from {Source}",source);try{var task=_stop();await Task.WhenAny(task,Task.Delay(TimeSpan.FromSeconds(3)));}catch(Exception ex){_logger.LogError(ex,"Graceful crash stop failed");}try{_restore();}catch(Exception ex){_logger.LogError(ex,"Cursor restore during crash failed");}}finally{Volatile.Write(ref _handling,0);}}
+    public async Task<CrashRecoveryResult> HandleAsync(string source,Exception exception)
+    {
+        if(Interlocked.Exchange(ref _handling,1)!=0)return CrashRecoveryResult.Reentrant;
+        var reportWritten=false;var stopCompleted=false;var restoreAttempted=false;var handlerFailed=false;
+        try
+        {
+            lock(_exceptions)_exceptions.Add($"{source}: {exception.GetType().Name}: {FileLogSink.Redact(exception.Message)}");
+            reportWritten=_files?.WriteCrashReport(source,exception)??false;
+            _logger.LogCritical(exception,"Unhandled exception from {Source}",source);
+            try
+            {
+                var stopTask=_stop();
+                var completed=await Task.WhenAny(stopTask,Task.Delay(_timeout)).ConfigureAwait(false);
+                if(ReferenceEquals(completed,stopTask)){await stopTask.ConfigureAwait(false);stopCompleted=true;}
+                else _logger.LogError("Graceful crash stop timed out after {Timeout}",_timeout);
+            }
+            catch(Exception ex){_logger.LogError(ex,"Graceful crash stop failed");}
+            try{restoreAttempted=true;_restore();}
+            catch(Exception ex){_logger.LogError(ex,"Cursor restore during crash failed");}
+        }
+        catch(Exception handlerException)
+        {
+            handlerFailed=true;
+            try{_files?.WriteCrashHandlerFallback(source,handlerException);}catch{}
+        }
+        finally{Volatile.Write(ref _handling,0);}
+        return new(true,reportWritten,stopCompleted,restoreAttempted,handlerFailed);
+    }
 }
 public sealed class DiagnosticExportService
 {
@@ -39,10 +71,23 @@ public sealed class DiagnosticExportService
         {
             var asm=Assembly.GetEntryAssembly()??Assembly.GetExecutingAssembly();var names=await _profiles.ListProfilesAsync(ct);
             var informational=asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            var metadata=new StringBuilder().AppendLine($"Version: {asm.GetName().Version}").AppendLine($"InformationalVersion: {informational}").AppendLine($"Commit: {informational}").AppendLine($"Windows: {Environment.OSVersion.VersionString}").AppendLine($".NET: {RuntimeInformation.FrameworkDescription}").AppendLine("DPI awareness: PerMonitorV2").AppendLine("Backend capabilities: maxContacts=10 touchInjection=true").AppendLine("Capability matrix:");
+            var dpiContext=NativeMethods.GetThreadDpiAwarenessContext();var isPerMonitorV2=NativeMethods.AreDpiAwarenessContextsEqual(dpiContext,NativeMethods.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+            var metadata=new StringBuilder().AppendLine($"Version: {asm.GetName().Version}").AppendLine($"InformationalVersion: {informational}").AppendLine($"Commit: {informational}").AppendLine($"Windows: {Environment.OSVersion.VersionString}").AppendLine($".NET: {RuntimeInformation.FrameworkDescription}").AppendLine($"DPI awareness: {(isPerMonitorV2?"PerMonitorV2":"NotPerMonitorV2")}").AppendLine("Backend capabilities: maxContacts=10 touchInjection=true").AppendLine("Capability matrix:");
             foreach(var capability in _capabilities.Items)metadata.AppendLine($"- {capability.Id}: {capability.Status} ({capability.Limitation})");
-            metadata.AppendLine($"Last session: {_session.Last}").AppendLine($"Profiles: {string.Join(", ",names.Select(Path.GetFileName))}").AppendLine($"Profile backups present: {Directory.Exists(Path.Combine(AppContext.BaseDirectory,"Profiles"))&&Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory,"Profiles"),"*.bak").Any()}").AppendLine("Target status: not captured when export is outside an active mapping session");
-            await File.WriteAllTextAsync(Path.Combine(temp,"metadata.txt"),FileLogSink.Redact(metadata.ToString()),ct);await File.WriteAllTextAsync(Path.Combine(temp,"exceptions.txt"),string.Join(Environment.NewLine,_crashes?.Exceptions??[]),ct);await File.WriteAllTextAsync(Path.Combine(temp,"README.txt"),"Diagnostic metadata and recent application logs. Profile contents, pressed keys, process lists, and other window titles are intentionally excluded.",ct);_logs.Flush();if(Directory.Exists(_logs.DirectoryPath))foreach(var file in Directory.EnumerateFiles(_logs.DirectoryPath,"game-control-mapper.log*"))File.Copy(file,Path.Combine(temp,Path.GetFileName(file)),true);if(File.Exists(zipPath))File.Delete(zipPath);ZipFile.CreateFromDirectory(temp,zipPath,CompressionLevel.Fastest,false);
+            metadata.AppendLine($"Last session: {_session.Last}").AppendLine($"Profile count: {names.Count}").AppendLine($"Profile backups present: {Directory.Exists(Path.Combine(AppContext.BaseDirectory,"Profiles"))&&Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory,"Profiles"),"*.bak").Any()}").AppendLine("Target status: not captured when export is outside an active mapping session");
+            await File.WriteAllTextAsync(Path.Combine(temp,"metadata.txt"),ProductionLogPrivacy.FilterDiagnosticText(metadata.ToString()),ct);
+            await File.WriteAllTextAsync(Path.Combine(temp,"exceptions.txt"),ProductionLogPrivacy.FilterDiagnosticText(string.Join(Environment.NewLine,_crashes?.Exceptions??[])),ct);
+            await File.WriteAllTextAsync(Path.Combine(temp,"README.txt"),"Diagnostic metadata and privacy-filtered application logs. Profile contents, input history, process lists, and unrelated window titles are excluded.",ct);
+            _logs.Flush();
+            if(Directory.Exists(_logs.DirectoryPath))
+            {
+                foreach(var file in Directory.EnumerateFiles(_logs.DirectoryPath,"game-control-mapper.log*"))
+                {
+                    var filtered=ProductionLogPrivacy.FilterDiagnosticText(await File.ReadAllTextAsync(file,ct));
+                    await File.WriteAllTextAsync(Path.Combine(temp,Path.GetFileName(file)),filtered,ct);
+                }
+            }
+            if(File.Exists(zipPath))File.Delete(zipPath);ZipFile.CreateFromDirectory(temp,zipPath,CompressionLevel.Fastest,false);
         }
         finally{try{Directory.Delete(temp,true);}catch{}}
     }

@@ -369,9 +369,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(ex.Message, "Ошибка завершения", MessageBoxButton.OK, MessageBoxImage.Error);
+            _viewModel.ReportUiFailure("Stop mapping while closing", ex);
+            System.Windows.MessageBox.Show("Не удалось безопасно остановить управление. Окно оставлено открытым; повторите остановку.", "Ошибка завершения", MessageBoxButton.OK, MessageBoxImage.Error);
             _isClosing = false;
-            e.Cancel = false;
+            e.Cancel = true;
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
         }
     }
 

@@ -1,5 +1,7 @@
 using GameControlMapper.Models;
 using GameControlMapper.Win32;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GameControlMapper.Services;
 
@@ -23,14 +25,17 @@ public sealed class TargetWindowGeometryMonitor : ITargetWindowGeometryMonitor
     private readonly ITargetWindowGeometryNativeAdapter _events;
     private readonly ITimer _timer;
     private readonly nint _hook;
+    private readonly ILogger<TargetWindowGeometryMonitor> _logger;
     private TargetWindowSession? _tracked;
     private int _validationQueued;
     private int _disposed;
+    private int _callbackFailures;
 
     public TargetWindowGeometryMonitor(IGameWindowGeometryProvider geometry, IGameWindowNativeAdapter native,
-        ITargetWindowGeometryNativeAdapter events, TimeProvider timeProvider)
+        ITargetWindowGeometryNativeAdapter events, TimeProvider timeProvider,ILogger<TargetWindowGeometryMonitor>? logger=null)
     {
         _geometry = geometry; _native = native; _events = events;
+        _logger=logger??NullLogger<TargetWindowGeometryMonitor>.Instance;
         _hook = events.Install(OnNativeEvent);
         _timer = timeProvider.CreateTimer(_ => QueueValidation(), null, TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
     }
@@ -50,19 +55,25 @@ public sealed class TargetWindowGeometryMonitor : ITargetWindowGeometryMonitor
     private void QueueValidation()
     {
         if (Volatile.Read(ref _disposed) != 0 || Interlocked.Exchange(ref _validationQueued, 1) != 0) return;
+        var queuedSession=Volatile.Read(ref _tracked);
+        if(queuedSession is null){Interlocked.Exchange(ref _validationQueued,0);return;}
         ThreadPool.QueueUserWorkItem(_ =>
         {
             try
             {
                 var current = Volatile.Read(ref _tracked);
-                if (current is null) return;
+                if (Volatile.Read(ref _disposed)!=0||current is null||current.Generation!=queuedSession.Generation) return;
                 var pidMatches = _native.GetWindowProcessId(current.WindowHandle) == current.ProcessId;
                 var result = _geometry.GetClientRect(current.WindowHandle);
                 if (!pidMatches || !result.Succeeded || result.ClientRect != current.ClientRect)
                 {
-                    Volatile.Write(ref _tracked, null);
-                    Invalidated?.Invoke(this, current.Generation);
+                    if(Interlocked.CompareExchange(ref _tracked,null,current)!=current)return;
+                    if(Volatile.Read(ref _disposed)==0)Invalidated?.Invoke(this, current.Generation);
                 }
+            }
+            catch(Exception ex)
+            {
+                if(Interlocked.Increment(ref _callbackFailures)==1)_logger.LogError(ex,"Target geometry callback failed; mapping remains fail-closed");
             }
             finally { Interlocked.Exchange(ref _validationQueued, 0); }
         });
@@ -76,17 +87,26 @@ public sealed class TargetWindowGeometryMonitor : ITargetWindowGeometryMonitor
 
 public sealed class WindowsTargetWindowGeometryNativeAdapter : ITargetWindowGeometryNativeAdapter
 {
-    private readonly List<nint> _hooks = [];
+    private readonly object _gate=new();
+    private nint _hook;
     private NativeMethods.WinEventProc? _callback;
     public nint Install(Action<nint> callback)
     {
-        _callback = (_, _, hwnd, _, _, _, _) => callback(hwnd);
-        foreach (var eventId in new uint[] { 0x8001, 0x8003, 0x800B, 0x0016, 0x0017 })
+        lock(_gate)
         {
-            var hook = NativeMethods.SetWinEventHook(eventId, eventId, 0, _callback, 0, 0, NativeMethods.WINEVENT_OUTOFCONTEXT);
-            if (hook != 0) _hooks.Add(hook);
+            if(_hook!=0)return _hook;
+            _callback = (_, _, hwnd, _, _, _, _) => {try{callback(hwnd);}catch{}};
+            _hook=NativeMethods.SetWinEventHook(0x8001,0x800B,0,_callback,0,0,NativeMethods.WINEVENT_OUTOFCONTEXT);
+            if(_hook==0)_callback=null;
+            return _hook;
         }
-        return _hooks.Count == 0 ? 0 : 1;
     }
-    public void Uninstall(nint hook) { foreach (var item in _hooks) NativeMethods.UnhookWinEvent(item); _hooks.Clear(); _callback = null; }
+    public void Uninstall(nint hook)
+    {
+        lock(_gate)
+        {
+            if(hook==0||hook!=_hook)return;
+            NativeMethods.UnhookWinEvent(_hook);_hook=0;_callback=null;
+        }
+    }
 }

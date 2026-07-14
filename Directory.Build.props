@@ -9,7 +9,7 @@
     <Optimize>true</Optimize>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
-    <InformationalVersion Condition="'$(SourceRevisionId)' != ''">$(Version)+$(SourceRevisionId)</InformationalVersion>
-    <InformationalVersion Condition="'$(SourceRevisionId)' == ''">$(Version)</InformationalVersion>
+    <!-- The .NET SDK appends SourceRevisionId once when repository metadata is available. -->
+    <InformationalVersion>$(Version)</InformationalVersion>
   </PropertyGroup>
 </Project>

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.IO;
 using GameControlMapper.Services;
 using GameControlMapper.UI.Views;
 using GameControlMapper.ViewModels;
@@ -10,6 +11,8 @@ namespace GameControlMapper;
 public partial class App : System.Windows.Application
 {
     private ServiceProvider? _serviceProvider;
+    private Task? _startupOperation;
+    private bool _diagnosticOnly;
     private int _crashDispatch;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -24,6 +27,14 @@ public partial class App : System.Windows.Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         _serviceProvider.GetRequiredService<DpiAwarenessDiagnostics>().LogCurrentContext();
+
+        if (TryGetDiagnosticExportPath(e.Args, out var diagnosticPath))
+        {
+            _diagnosticOnly = true;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _startupOperation = ExportDiagnosticsAndShutdownAsync(diagnosticPath);
+            return;
+        }
 
         // Initialize Touch Backend and Scheduler
         var touchBackend = _serviceProvider.GetRequiredService<ITouchBackend>();
@@ -42,9 +53,36 @@ public partial class App : System.Windows.Application
         
     }
 
+    internal static bool TryGetDiagnosticExportPath(IReadOnlyList<string> args, out string path)
+    {
+        path = string.Empty;
+        if (args.Count != 2 || !string.Equals(args[0], "--export-diagnostics", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(args[1]))
+        {
+            return false;
+        }
+
+        path = Path.GetFullPath(args[1]);
+        return string.Equals(Path.GetExtension(path), ".zip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task ExportDiagnosticsAndShutdownAsync(string path)
+    {
+        try
+        {
+            await _serviceProvider!.GetRequiredService<DiagnosticExportService>().ExportAsync(path);
+            Shutdown(0);
+        }
+        catch (Exception ex)
+        {
+            _serviceProvider!.GetRequiredService<ILogger<App>>()
+                .LogError(ex, "Command-line diagnostic export failed");
+            Shutdown(-1);
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
-        if (_serviceProvider != null)
+        if (_serviceProvider != null && !_diagnosticOnly)
         {
             var touchScheduler = _serviceProvider.GetService<TouchScheduler>();
             _serviceProvider.GetService<InputMappingEngine>()?.StopAsync("application shutdown").Wait(TimeSpan.FromSeconds(3));
@@ -56,12 +94,38 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 
-    private async void OnDispatcherUnhandledException(object sender,System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e){await HandleCrashAsync("Dispatcher",e.Exception);}
-    private void OnDomainUnhandledException(object? sender,UnhandledExceptionEventArgs e){if(e.ExceptionObject is Exception ex)HandleCrashAsync("AppDomain",ex).GetAwaiter().GetResult();}
-    private async void OnUnobservedTaskException(object? sender,UnobservedTaskExceptionEventArgs e){await HandleCrashAsync("TaskScheduler",e.Exception);e.SetObserved();}
-    private async Task HandleCrashAsync(string source,Exception ex){if(Interlocked.Exchange(ref _crashDispatch,1)!=0)return;try{if(_serviceProvider is not null)await _serviceProvider.GetRequiredService<CrashHandlingService>().HandleAsync(source,ex);}catch{}finally{Volatile.Write(ref _crashDispatch,0);}}
+    private void OnDispatcherUnhandledException(object sender,System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        var result=HandleCrashBounded("Dispatcher",e.Exception,TimeSpan.FromSeconds(4));
+        e.Handled=result?.CanMarkDispatcherHandled==true;
+    }
+    private void OnDomainUnhandledException(object? sender,UnhandledExceptionEventArgs e)
+    {
+        if(e.ExceptionObject is Exception ex)_=HandleCrashBounded("AppDomain",ex,TimeSpan.FromSeconds(4));
+    }
+    private void OnUnobservedTaskException(object? sender,UnobservedTaskExceptionEventArgs e)
+    {
+        var result=HandleCrashBounded("TaskScheduler",e.Exception,TimeSpan.FromSeconds(4));
+        if(result?.Started==true)e.SetObserved();
+    }
+    private CrashRecoveryResult? HandleCrashBounded(string source,Exception ex,TimeSpan timeout)
+    {
+        if(Interlocked.Exchange(ref _crashDispatch,1)!=0)return null;
+        try
+        {
+            if(_serviceProvider is null)return null;
+            var task=_serviceProvider.GetRequiredService<CrashHandlingService>().HandleAsync(source,ex);
+            return task.WaitAsync(timeout).GetAwaiter().GetResult();
+        }
+        catch(Exception handlerException)
+        {
+            try{_serviceProvider?.GetService<FileLogSink>()?.WriteCrashHandlerFallback(source,handlerException);}catch{}
+            return null;
+        }
+        finally{Volatile.Write(ref _crashDispatch,0);}
+    }
 
-    private static void ConfigureServices(IServiceCollection services)
+    internal static void ConfigureServices(IServiceCollection services,bool startNativeHooks=true)
     {
         var logSink = new AppLogSink();
         var fileLog = new FileLogSink();
@@ -77,8 +141,6 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IProfileStore, ProfileStore>();
         services.AddSingleton<MappingSessionDiagnostics>();
         services.AddSingleton<DiagnosticExportService>();
-        services.AddSingleton<CoordinateScaler>();
-        services.AddSingleton<IInputSimulator, SendInputSimulator>();
         services.AddSingleton<HotkeyParser>();
         services.AddSingleton<KeyboardHookService>();
         services.AddSingleton(provider =>
@@ -101,10 +163,17 @@ public partial class App : System.Windows.Application
             return camera;
         });
         services.AddSingleton(Models.ApplicationCapabilities.Beta);
-        services.AddSingleton<InputMappingEngine>();
+        services.AddSingleton<RuntimeInputPolicy>();
+        services.AddSingleton(provider=>new InputMappingEngine(
+            provider.GetRequiredService<KeyboardHookService>(),provider.GetRequiredService<MouseHookService>(),
+            provider.GetRequiredService<CameraMouseLookService>(),provider.GetRequiredService<TouchEngine>(),
+            provider.GetRequiredService<TouchScheduler>(),provider.GetRequiredService<HotkeyParser>(),
+            provider.GetRequiredService<TargetWindowSessionManager>(),provider.GetRequiredService<WindowCoordinateTransformer>(),
+            provider.GetRequiredService<ILogger<InputMappingEngine>>(),provider.GetRequiredService<ITargetWindowActivationMonitor>(),
+            provider.GetRequiredService<ITouchContactAllocator>(),provider.GetRequiredService<MappingSessionDiagnostics>(),
+            provider.GetRequiredService<RuntimeInputPolicy>(),startNativeHooks));
         services.AddSingleton(provider=>new CrashHandlingService(provider.GetRequiredService<ILogger<CrashHandlingService>>(),()=>provider.GetRequiredService<InputMappingEngine>().StopAsync("unhandled exception"),()=>provider.GetRequiredService<CameraMouseLookService>().Stop(),provider.GetRequiredService<FileLogSink>()));
         services.AddSingleton<GameWindowService>();
-        services.AddSingleton<OlenemerStatsReader>();
         services.AddSingleton<IGameWindowNativeAdapter, WindowsGameWindowNativeAdapter>();
         services.AddSingleton<IGameWindowGeometryProvider, GameWindowGeometryProvider>();
         services.AddSingleton<ITargetWindowActivationNativeAdapter, WindowsTargetWindowActivationNativeAdapter>();
@@ -116,6 +185,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<ITargetWindowSessionValidator>(provider => provider.GetRequiredService<TargetWindowSessionManager>());
         services.AddSingleton<WindowCoordinateTransformer>();
         services.AddSingleton<DpiAwarenessDiagnostics>();
+        services.AddSingleton<IUiDispatcher>(_ => new WpfUiDispatcher(Current.Dispatcher));
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MainWindow>();
         services.AddSingleton<TouchDebugViewModel>();
