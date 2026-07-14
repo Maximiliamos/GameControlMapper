@@ -67,13 +67,34 @@ $incomplete = @($scenarios | Where-Object { $_.status -in @('NotStarted','InProg
 if ($incomplete.Count -gt 0) { throw 'Report contains incomplete scenarios.' }
 if ($scenarios | Where-Object { $_.status -eq 'Failed' }) { throw 'Report contains failed scenarios.' }
 $machineEvidenceIds = @(1,2,3,4,9,15,16)
-foreach ($id in $machineEvidenceIds) {
-    $scenario = @($scenarios | Where-Object { [int]$_.id -eq $id })[0]
+foreach ($scenario in $scenarios) {
+    $id = [int]$scenario.id
+    if ($null -eq $scenario.status -or $null -eq $scenario.userVerdict -or $null -eq $scenario.finalVerdict) { throw "Scenario $id has a missing verdict." }
     if ($scenario.status -eq 'Passed') {
-        if ($null -eq $scenario.evidence -or $scenario.evidence.automaticVerdict -ne 'Passed' -or $scenario.userVerdict -ne 'Passed' -or $scenario.finalVerdict -ne 'Passed') { throw "Machine-verifiable scenario $id lacks accepted evidence." }
-        if ([int]$scenario.evidence.eventCount -le 0 -or [datetimeoffset]$scenario.evidence.completedAt -lt [datetimeoffset]$scenario.evidence.startedAt) { throw "Machine-verifiable scenario $id has malformed evidence." }
+        if ($scenario.userVerdict -ne 'Passed' -or $scenario.finalVerdict -ne 'Passed') { throw "Scenario $id has inconsistent passed verdicts." }
+        if ($machineEvidenceIds -contains $id) {
+            if ($null -eq $scenario.evidence -or $scenario.evidence.automaticVerdict -ne 'Passed') { throw "Machine-verifiable scenario $id lacks accepted evidence." }
+        }
+    }
+    elseif ($scenario.status -eq 'NotAvailable') {
+        if ($scenario.userVerdict -ne 'NotAvailable' -or $scenario.finalVerdict -ne 'NotAvailable') { throw "Scenario $id has inconsistent unavailable verdicts." }
+    }
+    elseif ($scenario.status -eq 'Failed') { throw "Scenario $id is failed." }
+    else { throw "Scenario $id has an unsupported status." }
+
+    if ($null -ne $scenario.evidence) {
+        $e = $scenario.evidence
+        if ([int]$e.scenarioId -ne $id) { throw "Scenario $id evidence belongs to another boundary." }
+        if ([int]$e.eventCount -lt 0 -or [int]$e.maximumConcurrentContacts -lt 0) { throw "Scenario $id has negative evidence counters." }
+        if ([int]$e.downBefore -lt 0 -or [int]$e.moveBefore -lt 0 -or [int]$e.upBefore -lt 0 -or [int]$e.downAfter -lt 0 -or [int]$e.moveAfter -lt 0 -or [int]$e.upAfter -lt 0) { throw "Scenario $id has negative counters." }
+        if ([int]$e.downAfter -lt [int]$e.downBefore -or [int]$e.moveAfter -lt [int]$e.moveBefore -or [int]$e.upAfter -lt [int]$e.upBefore) { throw "Scenario $id has decreasing counters." }
+        if ([datetimeoffset]$e.completedAt -lt [datetimeoffset]$e.startedAt) { throw "Scenario $id has reversed timestamps." }
+        if (($machineEvidenceIds -contains $id) -and [int]$e.eventCount -le 0) { throw "Machine-verifiable scenario $id has no evidence events." }
     }
 }
+
+if ([int]$report.downCount -lt 0 -or [int]$report.moveCount -lt 0 -or [int]$report.upCount -lt 0 -or [int]$report.maximumContacts -lt 0 -or [int]$report.activeContactsAtEnd -lt 0) { throw 'Report contains negative lifecycle counters.' }
+if ($null -eq $report.protocolErrors) { throw 'Report protocol errors are missing.' }
 
 $monitors = @($report.monitors)
 if ($monitors.Count -eq 0 -or [int]$report.monitorCount -ne $monitors.Count) { throw 'Monitor metadata is missing or inconsistent.' }

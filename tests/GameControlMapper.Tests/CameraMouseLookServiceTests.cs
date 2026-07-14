@@ -14,14 +14,14 @@ public sealed class CameraMouseLookServiceTests
     [Fact] public void RealMoveAfterZeroPacket_IsProcessed(){using var f=new F();f.Warp();f.Real(10,0);Assert.True(f.Contact.X>f.FirstDownX);}
     [Fact] public void CameraStart_CapturesOwnershipWithoutMovingOrClippingCursor(){using var f=new F();Assert.False(f.Cursor.Visible);Assert.Equal(1,f.Cursor.GetPositionCount);Assert.Equal(1,f.Cursor.GetClipCount);Assert.Equal(0,f.Cursor.SetCount);Assert.Equal(0,f.Cursor.SetClipCount);Assert.Equal(f.Cursor.OriginalClip,f.Cursor.Clip);}
     [Fact] public void CameraStartFailure_LeavesCursorVisible(){var c=new FakeCursor{FailHide=true};using var f=new F(c,false);Assert.False(f.Camera.Start(new(),500,500));Assert.True(c.Visible);Assert.False(f.Camera.IsActive);}
-    [Fact] public void CameraStop_RestoresCursorAndClipState(){using var f=new F();f.Camera.Stop();AssertRestored(f);}
+    [Fact] public void CameraStop_RestoresVisibilityWithoutRewritingCursorState(){using var f=new F();f.Camera.Stop();AssertRestored(f);Assert.Equal(0,f.Cursor.SetCount);Assert.Equal(0,f.Cursor.SetClipCount);}
     [Fact] public void FocusLoss_RestoresCursorState(){using var f=new F();f.Camera.Stop();AssertRestored(f);}
     [Fact] public void GeometryInvalidation_RestoresCursorState(){using var f=new F();f.Camera.Stop();AssertRestored(f);}
     [Fact] public void ApplicationShutdown_RestoresCursorState(){var f=new F();f.Camera.Dispose();AssertRestored(f);}
     [Fact] public void RepeatedStop_RestoresCursorExactlyOnce(){using var f=new F();f.Camera.Stop();f.Camera.Stop();Assert.Equal(1,f.Cursor.RestoreVisibleCount);Assert.Equal(0,f.Cursor.SetCount);}
     [Fact] public void InitiallyVisibleCursor_IsRestoredVisible(){using var f=new F();f.Camera.Stop();Assert.True(f.Cursor.Visible);Assert.Equal(1,f.Cursor.RestoreVisibleCount);}
     [Fact] public void InitiallyHiddenCursor_RemainsHidden(){var cursor=new FakeCursor{Visible=false};using var f=new F(cursor);f.Camera.Stop();Assert.False(cursor.Visible);Assert.Equal(0,cursor.RestoreVisibleCount);}
-    [Fact] public void ExistingClipRegion_IsRestored(){using var f=new F();f.Camera.Stop();Assert.Equal(f.Cursor.OriginalClip,f.Cursor.Clip);Assert.Equal(0,f.Cursor.SetClipCount);}
+    [Fact] public void Camera_DoesNotModifyClipRegion(){using var f=new F();f.Camera.Stop();Assert.Equal(f.Cursor.OriginalClip,f.Cursor.Clip);Assert.Equal(0,f.Cursor.SetClipCount);}
     [Fact] public void NoOriginalClip_RemainsUnclipped(){var cursor=new FakeCursor();cursor.OriginalClip=null;cursor.Clip=null;using var f=new F(cursor);f.Camera.Stop();Assert.Null(cursor.Clip);Assert.Equal(0,cursor.SetClipCount);}
     [Fact] public void RepeatedStop_RestoresOnce(){using var f=new F();f.Camera.Stop();f.Camera.Stop();Assert.Equal(1,f.Cursor.RestoreVisibleCount);}
     [Fact] public void OldGeneration_DoesNotRestoreNewSession(){using var f=new F();var old=f.Camera.Generation;f.Camera.Stop();Assert.True(f.Camera.Start(new(){Smooth=0},500,500));f.Camera.OnMouseMove(10,0,old);Assert.False(f.Cursor.Visible);Assert.Equal(1,f.Cursor.RestoreVisibleCount);}

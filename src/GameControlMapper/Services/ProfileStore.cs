@@ -21,9 +21,12 @@ public sealed class ProfileStore : IProfileStore
     {var path=GetProfilePath(name);if(!File.Exists(path)){var p=MapperProfile.CreateDefault(name);await SaveAsync(p,ct);return p;}return await ReadValidatedAsync(path,ct);}
     public async Task SaveAsync(MapperProfile profile,CancellationToken ct=default)
     {
-        EnsureValid(profile);Directory.CreateDirectory(_profilesDirectory);EnsureNoNormalizedCollision(profile.Name);var path=GetProfilePath(profile.Name);var temp=path+".profile.tmp";var backup=path+".bak";var json=JsonSerializer.Serialize(profile,JsonOptions);
+        EnsureValid(profile);
         await _saveGate.WaitAsync(ct);try
         {
+            Directory.CreateDirectory(_profilesDirectory);
+            EnsureNoNormalizedCollision(profile.Name);
+            var path=GetProfilePath(profile.Name);var temp=path+".profile.tmp";var backup=path+".bak";var json=JsonSerializer.Serialize(profile,JsonOptions);
             try
             {
                 await using(var stream=new FileStream(temp,FileMode.Create,FileAccess.Write,FileShare.None,4096,FileOptions.Asynchronous|FileOptions.WriteThrough)){await using var writer=new StreamWriter(stream);await writer.WriteAsync(json.AsMemory(),ct);await writer.FlushAsync(ct);stream.Flush(true);}

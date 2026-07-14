@@ -25,7 +25,7 @@ public static partial class ProductionLogPrivacy
     }
 
     [GeneratedRegex(
-        @"virtual[\s_-]*key|vk[\s_-]*code|scan[\s_-]*code|key[\s_-]*(down|up)|mouse[\s_-]*(down|up)|pressed[\s_-]*keys?|handlepressedinput|handlereleasedinput|joystick.*(coordinate|center|scaled|\bx\s*[:=]|\by\s*[:=])|camera.*(delta|\bdx\b|\bdy\b)|scheduler.*frame|\bframe\s+\d+",
+        @"virtual[\s_-]*key|vk[\s_-]*code|scan[\s_-]*code|key[\s_-]*(down|up)|mouse[\s_-]*(down|up)|pressed[\s_-]*keys?|handlepressedinput|handlereleasedinput|joystick.*(coordinate|center|scaled|\bx\s*[:=]|\by\s*[:=])|camera.*(delta|\bdx\b|\bdy\b)|touch.*(coordinate|\bx\s*[:=]|\by\s*[:=])|profile\s*point|scheduler.*frame|\bframe\s+\d+",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex InputHistoryPattern();
 }

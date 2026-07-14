@@ -81,7 +81,7 @@ dotnet run --project src/GameControlMapper/GameControlMapper.csproj -c Release
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 `
-  -Version 1.0.0-beta.2
+  -Version 1.0.0-beta.3
 ```
 
 Счётчик тестов берётся из TRX и записывается в manifest; он не захардкожен в документации или скриптах. Финальный `1.0.0` запрещён без принятого guided validation report и отдельной пересборки тем же commit.

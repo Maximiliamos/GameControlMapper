@@ -13,6 +13,7 @@ public enum EnvironmentRequirement { None, HighDpi, MultipleMonitors, NegativeOr
 
 public sealed class ScenarioEvidence
 {
+    public int ScenarioId { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset CompletedAt { get; set; }
     public int DownBefore { get; set; }
@@ -44,8 +45,8 @@ public sealed class ValidationScenario
     [JsonIgnore] public EnvironmentRequirement Requirement { get; init; }
     public bool EnvironmentOnly => Requirement != EnvironmentRequirement.None;
     public ValidationStatus Status { get; set; }
-    public ValidationStatus UserVerdict { get; set; }
-    public ValidationStatus FinalVerdict { get; set; }
+    public ValidationStatus? UserVerdict { get; set; }
+    public ValidationStatus? FinalVerdict { get; set; }
     public ScenarioEvidence? Evidence { get; set; }
     public string Comment { get; set; } = "";
 }
@@ -224,6 +225,19 @@ public sealed class GuidedValidationSession
     public List<ValidationScenario> Scenarios { get; }
     public List<string> ProtocolErrors { get; } = [];
     public void SetEnvironment(MonitorEnvironmentMetadata environment) => _environment = environment;
+    public void ResetValidationSession()
+    {
+        _scenarioStarts.Clear();
+        ProtocolErrors.Clear();
+        foreach (var scenario in Scenarios)
+        {
+            scenario.Status = ValidationStatus.NotStarted;
+            scenario.UserVerdict = null;
+            scenario.FinalVerdict = null;
+            scenario.Evidence = null;
+            scenario.Comment = "";
+        }
+    }
     public static bool RequiresMachineEvidence(int id) => id is 1 or 2 or 3 or 4 or 9 or 15 or 16;
 
     public void BeginScenario(int id, TouchLifecycleTracker tracker)
@@ -281,7 +295,7 @@ public sealed class GuidedValidationSession
     {
         if (!_scenarioStarts.TryGetValue(id, out var start))
             start = new ScenarioStart(DateTimeOffset.Now, tracker.DownCount, tracker.MoveCount, tracker.UpCount);
-        var events = tracker.Events.Where(item => item.Timestamp >= start.Timestamp).ToArray();
+        var events = tracker.ValidationEvents.Where(item => item.Timestamp >= start.Timestamp).ToArray();
         var protocolClean = events.All(item => item.ProtocolError is null);
         var active = new HashSet<int>();
         var maximum = 0;
@@ -325,6 +339,7 @@ public sealed class GuidedValidationSession
         };
         return new ScenarioEvidence
         {
+            ScenarioId = id,
             StartedAt = start.Timestamp, CompletedAt = DateTimeOffset.Now,
             DownBefore = start.Down, MoveBefore = start.Move, UpBefore = start.Up,
             DownAfter = tracker.DownCount, MoveAfter = tracker.MoveCount, UpAfter = tracker.UpCount,
@@ -369,7 +384,7 @@ public sealed class GuidedValidationSession
             Monitors = environment.Monitors.ToList(), MonitorCount = environment.Monitors.Count,
             HasNegativeOrigin = environment.HasNegativeOrigin, HasMixedDpi = environment.HasMixedDpi,
             PrimaryMonitorId = environment.PrimaryMonitorId, HarnessMonitorId = environment.HarnessMonitorId, TargetMonitorId = environment.TargetMonitorId,
-            Scenarios = Scenarios, ProtocolErrors = ProtocolErrors.Concat(tracker.Events.Where(item => item.ProtocolError is not null).Select(item => item.ProtocolError!)).ToList(),
+            Scenarios = Scenarios, ProtocolErrors = ProtocolErrors.Concat(tracker.ValidationEvents.Where(item => item.ProtocolError is not null).Select(item => item.ProtocolError!)).Distinct().ToList(),
             DownCount = tracker.DownCount, MoveCount = tracker.MoveCount, UpCount = tracker.UpCount,
             MaximumContacts = tracker.MaximumConcurrentContacts, ActiveContactsAtEnd = tracker.ActiveContacts.Count,
             Verdict = Evaluate(tracker.ActiveContacts.Count)

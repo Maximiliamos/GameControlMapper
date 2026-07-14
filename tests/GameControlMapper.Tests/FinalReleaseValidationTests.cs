@@ -23,7 +23,7 @@ public sealed class FinalReleaseValidationTests
     public void ValidationReport_SerializesRequiredIdentityAndHashesWithoutPrivateFields()
     {
         using var fixture=new ValidationFixture();var report=fixture.CreateReport();var json=JsonSerializer.Serialize(report);
-        Assert.Equal("1.0.0-beta.2",report.ProductVersion);Assert.Equal("abc123",report.CommitHash);
+        Assert.Equal("1.0.0-beta.3",report.ProductVersion);Assert.Equal("abc123",report.CommitHash);
         Assert.Equal(64,report.ApplicationArchiveSha256.Length);Assert.Equal(64,report.HarnessArchiveSha256.Length);
         Assert.DoesNotContain("ProfileContents",json);Assert.DoesNotContain("PressedKeys",json);Assert.DoesNotContain("WindowTitle",json);Assert.DoesNotContain("UserProfile",json);
     }
@@ -47,6 +47,7 @@ public sealed class FinalReleaseValidationTests
     [Fact] public void GuidedEvidence_HoldRequiresDuration() { var s=Session();var t=new TouchLifecycleTracker();s.BeginScenario(2,t);var start=DateTimeOffset.Now;t.Process(7,10,10,HarnessTouchState.Down,start);t.Process(7,10,10,HarnessTouchState.Up,start.AddMilliseconds(600));Assert.True(s.CanPass(2,t,out _)); }
     [Fact] public void GuidedEvidence_DoubleTapRequiresTwoLifecycles() { var s=Session();var t=new TouchLifecycleTracker();s.BeginScenario(3,t);foreach(var id in new[]{7,8}){t.Process(id,10,10,HarnessTouchState.Down);t.Process(id,10,10,HarnessTouchState.Up);}Assert.True(s.CanPass(3,t,out _)); }
     [Fact] public void GuidedEvidence_CameraRequiresMeasuredTwoMinutes() { var s=Session();var t=new TouchLifecycleTracker();s.BeginScenario(9,t);var start=DateTimeOffset.Now;t.Process(7,10,10,HarnessTouchState.Down,start);t.Process(7,20,10,HarnessTouchState.Move,start.AddMinutes(1));t.Process(7,20,10,HarnessTouchState.Up,start.AddMinutes(2));Assert.True(s.CanPass(9,t,out _)); }
+    [Fact] public void GuidedEvidence_CameraOverTenThousandMovesUsesFullEvidenceBuffer() { var s=Session();var t=new TouchLifecycleTracker(500);s.BeginScenario(9,t);var start=DateTimeOffset.UtcNow;t.Process(7,10,10,HarnessTouchState.Down,start);for(var i=0;i<10_001;i++)t.Process(7,11+i,10,HarnessTouchState.Move,start.AddMilliseconds(i));t.Process(7,20,10,HarnessTouchState.Up,start.AddMinutes(2));Assert.True(s.SetStatus(9,ValidationStatus.Passed,"camera soak",t,out var error),error);var evidence=s.Scenarios.Single(x=>x.Id==9).Evidence!;Assert.Equal(10_003,evidence.EventCount);Assert.True(evidence.StartedAt<=start);Assert.Equal(500,t.Events.Count); }
     [Fact] public void GuidedEvidence_MultitouchUsesMeasuredConcurrency() { var s=Session();var t=new TouchLifecycleTracker();s.BeginScenario(15,t);t.Process(7,10,10,HarnessTouchState.Down);t.Process(8,20,10,HarnessTouchState.Down);t.Process(7,10,10,HarnessTouchState.Up);t.Process(8,20,10,HarnessTouchState.Up);Assert.True(s.CanPass(15,t,out _)); }
 
     [Fact] public void ValidationScript_AcceptsValidPassedReport() => AssertSuccess(RunValidation());
@@ -57,12 +58,18 @@ public sealed class FinalReleaseValidationTests
     [Fact] public void ValidationScript_RejectsArchiveHashMismatch() => AssertFailure(RunValidation(afterExport:fixture=>File.AppendAllText(fixture.ApplicationArchive,"changed")));
     [Fact] public void ValidationScript_RejectsProtocolErrors() => AssertFailure(RunValidation(r=>r.ProtocolErrors.Add("protocol")));
     [Fact] public void ValidationScript_RejectsActiveContacts() => AssertFailure(RunValidation(r=>r.ActiveContactsAtEnd=1));
-    [Fact] public void ValidationScript_AllowsUnavailableHardwareScenario() { var result=RunValidation(r=>{r.Scenarios.Single(x=>x.Id==45).Status=ValidationStatus.NotAvailable;r.Verdict=ValidationVerdict.PassedWithUnverifiedEnvironments;});AssertSuccess(result); }
+    [Fact] public void ValidationScript_AllowsUnavailableHardwareScenario() { var result=RunValidation(r=>{var scenario=r.Scenarios.Single(x=>x.Id==45);scenario.Status=ValidationStatus.NotAvailable;scenario.UserVerdict=ValidationStatus.NotAvailable;scenario.FinalVerdict=ValidationStatus.NotAvailable;r.Verdict=ValidationVerdict.PassedWithUnverifiedEnvironments;});AssertSuccess(result); }
     [Fact] public void ValidationScript_RejectsUnavailableCoreScenario() => AssertFailure(RunValidation(r=>{r.Scenarios[0].Status=ValidationStatus.NotAvailable;r.Verdict=ValidationVerdict.PassedWithUnverifiedEnvironments;}));
     [Fact] public void ValidationScript_RejectsMissingRequiredScenario() => AssertFailure(RunValidation(r=>r.Scenarios.RemoveAt(0)));
     [Fact] public void ValidationScript_RejectsDuplicateScenarioIds() => AssertFailure(RunValidation(r=>r.Scenarios[1]=new(1,r.Scenarios[1].Name){Status=ValidationStatus.Passed}));
     [Fact] public void ValidationScript_RejectsUnknownScenarioIds() => AssertFailure(RunValidation(r=>r.Scenarios[0]=new(99,r.Scenarios[0].Name){Status=ValidationStatus.Passed}));
     [Fact] public void ValidationScript_RejectsModifiedScenarioNames() => AssertFailure(RunValidation(r=>r.Scenarios[0]=new(1,"Modified"){Status=ValidationStatus.Passed}));
+    [Fact] public void ValidationScript_RejectsInconsistentUserVerdict()=>AssertFailure(RunValidation(r=>r.Scenarios[0].UserVerdict=ValidationStatus.Failed));
+    [Fact] public void ValidationScript_RejectsInconsistentFinalVerdict()=>AssertFailure(RunValidation(r=>r.Scenarios[0].FinalVerdict=ValidationStatus.Failed));
+    [Fact] public void ValidationScript_RejectsMissingVerdict()=>AssertFailure(RunValidation(r=>r.Scenarios[0].FinalVerdict=null));
+    [Fact] public void ValidationScript_RejectsNegativeCounters()=>AssertFailure(RunValidation(r=>r.Scenarios[0].Evidence=new(){ScenarioId=1,StartedAt=DateTimeOffset.Now,CompletedAt=DateTimeOffset.Now,EventCount=-1,AutomaticVerdict=ValidationStatus.Passed}));
+    [Fact] public void ValidationScript_RejectsReversedTimestamps()=>AssertFailure(RunValidation(r=>r.Scenarios[0].Evidence=new(){ScenarioId=1,StartedAt=DateTimeOffset.Now,CompletedAt=DateTimeOffset.Now.AddSeconds(-1),EventCount=1,AutomaticVerdict=ValidationStatus.Passed}));
+    [Fact] public void ValidationScript_RejectsDecreasingCounters()=>AssertFailure(RunValidation(r=>r.Scenarios[0].Evidence=new(){ScenarioId=1,StartedAt=DateTimeOffset.Now.AddSeconds(-1),CompletedAt=DateTimeOffset.Now,EventCount=1,DownBefore=2,DownAfter=1,AutomaticVerdict=ValidationStatus.Passed}));
     [Fact] public void Finalizer_RejectsNonFinalVersionByExecutingScript() { var result=RunPowerShell(Path.Combine(Root(),"scripts","finalize-release.ps1"),"-ReportPath x -Version 1.0.0-beta.2 -Commit x -ApplicationArchive x -HarnessArchive x -OutputDirectory x");AssertFailure(result);Assert.Contains("Final release version must be 1.0.0",result.Output); }
 
     private static GuidedValidationSession Session() => new(SingleMonitor);
@@ -72,7 +79,7 @@ public sealed class FinalReleaseValidationTests
     private static void AssertSuccess((int ExitCode,string Output) result) => Assert.True(result.ExitCode==0,result.Output);
     private static void AssertFailure((int ExitCode,string Output) result) => Assert.True(result.ExitCode!=0,"Expected failure but command succeeded: "+result.Output);
 
-    private static (int ExitCode,string Output) RunValidation(Action<ManualValidationReport>? mutate=null,string expectedVersion="1.0.0-beta.2",string expectedCommit="abc123",Action<ValidationFixture>? afterExport=null)
+    private static (int ExitCode,string Output) RunValidation(Action<ManualValidationReport>? mutate=null,string expectedVersion="1.0.0-beta.3",string expectedCommit="abc123",Action<ValidationFixture>? afterExport=null)
     {
         using var fixture=new ValidationFixture();var report=fixture.CreateReport();mutate?.Invoke(report);GuidedValidationSession.Export(report,fixture.ReportPath);afterExport?.Invoke(fixture);
         return RunPowerShell(Path.Combine(Root(),"scripts","validate-manual-release.ps1"),$"-ReportPath \"{fixture.ReportPath}\" -ApplicationArchive \"{fixture.ApplicationArchive}\" -HarnessArchive \"{fixture.HarnessArchive}\" -ExpectedVersion {expectedVersion} -ExpectedCommit {expectedCommit}");
@@ -93,7 +100,7 @@ public sealed class FinalReleaseValidationTests
         public string DirectoryPath{get;}=Path.Combine(Path.GetTempPath(),"gcm-validation-"+Guid.NewGuid().ToString("N"));
         public string ApplicationArchive=>Path.Combine(DirectoryPath,"app.zip");public string HarnessArchive=>Path.Combine(DirectoryPath,"harness.zip");public string ReportPath=>Path.Combine(DirectoryPath,"report.json");
         public ValidationFixture(){Directory.CreateDirectory(DirectoryPath);File.WriteAllText(ApplicationArchive,"app");File.WriteAllText(HarnessArchive,"harness");}
-        public ManualValidationReport CreateReport(){var session=CompletedSession();var report=session.CreateReport(new TouchLifecycleTracker(),"1.0.0-beta.2","abc123","abc123",ApplicationArchive,HarnessArchive,monitorProvider:new FakeMonitorProvider(SingleMonitor));foreach(var scenario in report.Scenarios.Where(item=>GuidedValidationSession.RequiresMachineEvidence(item.Id))){scenario.Evidence=new(){StartedAt=DateTimeOffset.Now.AddSeconds(-1),CompletedAt=DateTimeOffset.Now,EventCount=1,AutomaticVerdict=ValidationStatus.Passed,AutomaticReason="test evidence"};scenario.UserVerdict=ValidationStatus.Passed;scenario.FinalVerdict=ValidationStatus.Passed;}return report;}
+        public ManualValidationReport CreateReport(){var session=CompletedSession();var report=session.CreateReport(new TouchLifecycleTracker(),"1.0.0-beta.3","abc123","abc123",ApplicationArchive,HarnessArchive,monitorProvider:new FakeMonitorProvider(SingleMonitor));foreach(var scenario in report.Scenarios.Where(item=>GuidedValidationSession.RequiresMachineEvidence(item.Id))){scenario.Evidence=new(){ScenarioId=scenario.Id,StartedAt=DateTimeOffset.Now.AddSeconds(-1),CompletedAt=DateTimeOffset.Now,EventCount=1,AutomaticVerdict=ValidationStatus.Passed,AutomaticReason="test evidence"};scenario.UserVerdict=ValidationStatus.Passed;scenario.FinalVerdict=ValidationStatus.Passed;}return report;}
         public void Dispose(){try{Directory.Delete(DirectoryPath,true);}catch{}}
     }
 }

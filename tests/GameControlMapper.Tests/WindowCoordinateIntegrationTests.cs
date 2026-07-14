@@ -84,6 +84,32 @@ public sealed class WindowCoordinateIntegrationTests
     [Fact]public async Task SchedulerFatalFailure_DoesNotRestartWorkerAutomatically(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();var frames=f.Backend.FrameCount;f.Scheduler.Resume();await Task.Delay(50);Assert.Equal(frames,f.Backend.FrameCount);Assert.True(f.Scheduler.HasFatalFailure);}
     [Fact]public async Task SchedulerFatalFailure_RejectsLateInput(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();var frames=f.Backend.FrameCount;f.Press(Key.W);await Task.Delay(50);Assert.Equal(frames,f.Backend.FrameCount);}
     [Fact]public async Task SchedulerFatalFailure_IsRateLimitedInLogs(){using var f=new Fixture(new(0,0,1000,500));var raised=0;f.Scheduler.FatalSchedulerFailure+=(_,_)=>Interlocked.Increment(ref raised);f.CauseSchedulerFailure();f.Backend.ThrowNextFrame=true;await f.Scheduler.SendFrameOnceAsync();Assert.Equal(1,raised);}
+    [Fact]public void FatalScheduler_WorkerStateBecomesFaulted(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.Equal(TouchSchedulerState.Faulted,f.Scheduler.State);}
+    [Fact]public void FatalScheduler_StartAfterFailureIsRejected(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();f.Mapping.Start();Assert.False(f.Mapping.IsActive);}
+    [Fact]public void FatalScheduler_StartAfterFailureDoesNotEnableSuppression(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();f.Mapping.Start();Assert.False(f.Mapping.CurrentInputPermission.AllowSuppression);}
+    [Fact]public void FatalScheduler_StopRemainsIdempotent(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();var one=f.Mapping.StopAsync();var two=f.Mapping.StopAsync();Assert.Same(one,two);}
+    [Fact]public void FatalScheduler_DiagnosticsPreserveFailureReason(){using var f=new Fixture(new(0,0,1000,500));f.CauseSchedulerFailure();Assert.Equal("scheduler failure",f.Diagnostics.Last.StopReason);}
+
+    [Fact] public Task OldTap_BlockedBeforeAcquire_CannotEnterNewGeneration()=>AssertOldActionCannotEnterNewGeneration(BindingKind.Tap);
+    [Fact] public Task OldHold_BlockedBeforeAcquire_CannotEnterNewGeneration()=>AssertOldActionCannotEnterNewGeneration(BindingKind.Hold);
+    [Fact] public Task OldSwipe_BlockedBeforeAcquire_CannotEnterNewGeneration()=>AssertOldActionCannotEnterNewGeneration(BindingKind.Swipe);
+    [Fact] public Task StopBetweenGenerationCheckAndAcquire_RejectsLease()=>AssertOldActionCannotEnterNewGeneration(BindingKind.Tap);
+    [Fact] public async Task CancelledAction_CannotAcquireLease(){using var f=new Fixture(new(0,0,1000,500));var entered=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var release=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);f.BeforeTouchAcquire=async _=>{entered.TrySetResult();await release.Task;};f.StartBinding(BindingKind.Tap);f.Press(Key.Q);Assert.True(await Task.WhenAny(entered.Task,Task.Delay(TimeSpan.FromSeconds(5)))==entered.Task);var stop=f.Mapping.StopAsync();release.TrySetResult();await stop;Assert.True(SpinWait.SpinUntil(()=>f.Mapping.RunningActionCount==0,TimeSpan.FromSeconds(2)));Assert.Empty(f.TouchEngine.ContactAllocator.ActiveLeases);}
+    [Fact] public async Task NewPhysicalPressAfterRestart_StillWorks(){using var f=new Fixture(new(0,0,1000,500));f.StartBinding(BindingKind.Tap);f.Press(Key.Q);Assert.True(f.Backend.WaitForState(TouchState.Down));await f.Mapping.StopAsync();f.Release(Key.Q);f.StartBinding(BindingKind.Tap);var before=f.Backend.Contacts(TouchState.Down).Count;f.Press(Key.Q);Assert.True(f.Backend.WaitForFrameCount(before+1));}
+    private static async Task AssertOldActionCannotEnterNewGeneration(BindingKind kind)
+    {
+        using var f=new Fixture(new(0,0,1000,500));var entered=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var release=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.BeforeTouchAcquire=async _=>{entered.TrySetResult();await release.Task;};f.StartBinding(kind);f.Press(Key.Q);Assert.True(await Task.WhenAny(entered.Task,Task.Delay(TimeSpan.FromSeconds(5)))==entered.Task);
+        var stop=f.Mapping.StopAsync();release.TrySetResult();await stop;f.Release(Key.Q);f.StartBinding(BindingKind.Tap);var before=f.Backend.Contacts(TouchState.Down).Count;f.Press(Key.Q);
+        Assert.True(f.Backend.WaitForState(TouchState.Down));Assert.True(SpinWait.SpinUntil(()=>f.Mapping.RunningActionCount==0,TimeSpan.FromSeconds(2)));Assert.Equal(before+1,f.Backend.Contacts(TouchState.Down).Count);
+    }
+
+    [Fact]public async Task DoubleTap_SecondContact_CannotEnterNewGeneration()
+    {
+        using var f=new Fixture(new(0,0,1000,500));var entered=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var release=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var acquireCount=0;
+        f.BeforeTouchAcquire=async _=>{if(Interlocked.Increment(ref acquireCount)==2){entered.TrySetResult();await release.Task;}};f.StartBinding(BindingKind.DoubleTap);f.Press(Key.Q);Assert.True(await Task.WhenAny(entered.Task,Task.Delay(TimeSpan.FromSeconds(5)))==entered.Task);
+        var stop=f.Mapping.StopAsync();release.TrySetResult();await stop;f.Release(Key.Q);f.StartBinding(BindingKind.Tap);var before=f.Backend.Contacts(TouchState.Down).Count;f.Press(Key.Q);Assert.True(f.Backend.WaitForFrameCount(before+1));Assert.True(SpinWait.SpinUntil(()=>f.Mapping.RunningActionCount==0,TimeSpan.FromSeconds(2)));Assert.Equal(before+1,f.Backend.Contacts(TouchState.Down).Count);
+    }
 
     [Fact]
     public async Task CtrlPress_TogglesCameraAndCtrlReleaseKeepsItActive()
@@ -342,6 +368,7 @@ public sealed class WindowCoordinateIntegrationTests
         public MappingSessionDiagnostics Diagnostics { get; }=new();
         public FakeActivationNative ActivationNative { get; }=new();
         public TargetWindowActivationMonitor ActivationMonitor { get; }
+        public Func<CancellationToken,Task>? BeforeTouchAcquire { get; set; }
         private readonly TargetWindowGeometryMonitor _geometryMonitor;
 
         public Fixture(PhysicalClientRect rect)
@@ -363,7 +390,7 @@ public sealed class WindowCoordinateIntegrationTests
                 MouseHook,
                 Camera,
                 TouchEngine, Scheduler, new HotkeyParser(), Session,
-                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,ActivationMonitor,sessionDiagnostics:Diagnostics,startNativeHooks:false);
+                new WindowCoordinateTransformer(), NullLogger<InputMappingEngine>.Instance,ActivationMonitor,sessionDiagnostics:Diagnostics,startNativeHooks:false,beforeTouchAcquire:token=>BeforeTouchAcquire?.Invoke(token)??Task.CompletedTask);
             Profile = MapperProfile.CreateDefault();
             Profile.ResolutionWidth = 1000;
             Profile.ResolutionHeight = 500;

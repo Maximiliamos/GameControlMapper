@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0-beta.3
+
+- Исправлены подтверждённые замечания независимого ревью: изоляция поколений касаний, terminal-fail state планировщика, доказательная база ручной валидации, конкурентное сохранение профилей и фильтрация координат из production-логов.
+
 ## Unreleased — audit remediation
 
 - production-логи и диагностический ZIP очищены от истории ввода, binding names, joystick coordinates, camera deltas и scheduler frames;

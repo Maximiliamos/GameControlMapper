@@ -14,6 +14,8 @@ public sealed class ProductionDiagnosticsTests
  [Fact]public void ProductionLogging_MouseButtonsAreNotPersisted()=>AssertPrivateLogRejected("MouseDown Left; MouseUp Left");
  [Fact]public void ProductionLogging_BindingNamesAreNotPersistedFromInputPath()=>AssertPrivateLogRejected("HandlePressedInput binding SECRET_BINDING");
  [Fact]public void ProductionLogging_JoystickCoordinatesAreNotPersisted()=>AssertPrivateLogRejected("Joystick center X=100 Y=200 scaled center=300,400");
+ [Fact]public void ProductionLogging_ProfileCoordinatesAreNotPersisted()=>AssertPrivateLogRejected("Profile point (100, 200) is outside profile bounds.");
+ [Fact]public void ProductionLogging_TouchCoordinatesAreNotPersistedAtWarningOrErrorLevels(){using var f=new F();var logger=Logger(f);logger.LogWarning("Touch coordinate rejected: profile point (100, 200)");logger.LogError("Touch injection failed at X=300 Y=400");f.Log.Flush();var text=ReadLog(f);Assert.DoesNotContain("(100, 200)",text);Assert.DoesNotContain("X=300 Y=400",text);}
  [Fact]public void ProductionLogging_CameraDeltasAreNotPersisted()=>AssertPrivateLogRejected("Camera delta dx=12 dy=-4");
  [Fact]public void ProductionLogging_SchedulerFramesAreNotPersisted()=>AssertPrivateLogRejected("Scheduler FRAME 42 X=10 Y=20");
  [Fact]public void ProductionLogging_SessionStartIsPersisted(){using var f=new F();Logger(f).LogInformation("Mapping session abc123 started");f.Log.Flush();Assert.Contains("Mapping session abc123 started",ReadLog(f));}
